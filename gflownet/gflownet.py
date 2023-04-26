@@ -4,6 +4,7 @@ from torch.nn.parameter import Parameter
 from torch.distributions import Categorical
 from .log import Log
 
+
 class GFlowNet(nn.Module):
     def __init__(self, forward_policy, backward_policy, env):
         """
@@ -72,7 +73,7 @@ class GFlowNet(nn.Module):
             
             if return_log:
                 log.log(s, probs, actions, done)
-                
+
             terminated = actions == probs.shape[-1] - 1
             done[~done] = terminated
         

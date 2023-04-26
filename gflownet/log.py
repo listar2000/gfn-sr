@@ -1,5 +1,6 @@
 import torch
 
+
 class Log:
     def __init__(self, s0, backward_policy, total_flow, env):
         """
@@ -13,8 +14,7 @@ class Log:
             backward_policy: The backward policy used to estimate the backward
             probabilities associated with each sample's trajectory
             
-            total_flow: The estimated total flow used by the GFlowNet during
-            sampling
+            total_flow: The estimated total flow used by the GFlowNet during sampling
             
             env: The environment (i.e. state space and reward function) from
             which samples are drawn

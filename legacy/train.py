@@ -4,12 +4,14 @@ import argparse
 from tqdm import tqdm
 from torch.nn.functional import one_hot
 from gflownet.gflownet import GFlowNet
-from policy import ForwardPolicy, BackwardPolicy
+from policy_old import ForwardPolicy, BackwardPolicy, DummyBackwardPolicy
 from gflownet.utils import trajectory_balance_loss
 from torch.optim import Adam
 from grid import Grid
+from poisson import PoissonPoint
 
 size = 16
+
 
 def plot(samples, env):    
     _, ax = plt.subplots(1, 2)
@@ -23,10 +25,21 @@ def plot(samples, env):
     
     plt.show()
 
+
+def plot_poisson(samples, env):
+    # print(len(samples))
+    plt.hist(samples.argmax(1), bins=20, density=True)
+    truth = env.reward(torch.eye(env.state_dim))
+    plt.plot(torch.arange(0, env.state_dim), truth, 'bo-', linewidth=2)
+    plt.show()
+
+
 def train(batch_size, num_epochs):
+    env = PoissonPoint()
     env = Grid(size=size)
     forward_policy = ForwardPolicy(env.state_dim, hidden_dim=32, num_actions=env.num_actions)
     backward_policy = BackwardPolicy(env.state_dim, num_actions=env.num_actions)
+    # backward_policy = DummyBackwardPolicy(env.state_dim, num_actions=env.num_actions)
     model = GFlowNet(forward_policy, backward_policy, env)
     opt = Adam(model.parameters(), lr=5e-3)
     
@@ -40,12 +53,15 @@ def train(batch_size, num_epochs):
         loss.backward()
         opt.step()
         opt.zero_grad()
-        if i % 10 == 0: p.set_description(f"{loss.item():.3f}")
+        if i % 10 == 0:
+            p.set_description(f"{loss.item():.3f}")
 
     s0 = one_hot(torch.zeros(10**4).long(), env.state_dim).float()
     s = model.sample_states(s0, return_log=False)
     plot(s, env)
-    
+    # plot_poisson(s, env)
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--batch_size", type=int, default=256)

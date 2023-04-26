@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 
+
 class Env(ABC):
     """
     Abstract base class defining the signatures of the required functions to be

@@ -2,6 +2,7 @@ import torch
 from torch.nn.functional import one_hot
 from gflownet.env import Env
 
+
 class Grid(Env):
     def __init__(self, size):
         self.size = size

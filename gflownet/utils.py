@@ -1,5 +1,6 @@
 import torch
 
+
 def trajectory_balance_loss(total_flow, rewards, fwd_probs, back_probs):
     """
     Computes the mean trajectory balance loss for a collection of samples. For
