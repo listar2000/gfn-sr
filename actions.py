@@ -76,7 +76,7 @@ class ActionNode(object):
             left_expr, right_expr = self.left.expr(constants), self.right.expr(constants)
             return f'{self.name}({left_expr}, {right_expr})'
         elif self.arity == 1:
-            left_expr = self.right.expr(constants)
+            left_expr = self.left.expr(constants)
             return f'{self.name}({left_expr})'
         elif self.name == 'c':
             return round(constants[self.c_index].item(), 2) if constants else 'c'
@@ -105,7 +105,7 @@ class ExpressionTree(nn.Module):
         super(ExpressionTree, self).__init__()
         c_counter = 0
         nodes = {}
-        for i in torch.nonzero(encoding >= 0).squeeze().tolist():
+        for i in torch.nonzero(encoding >= 0).flatten().tolist():
             if encoding[i] == 0:  # constant
                 nodes[i] = ActionNode(encoding[i], action_fns, action_arities, action_names, c_index=c_counter)
                 c_counter += 1
@@ -115,29 +115,33 @@ class ExpressionTree(nn.Module):
                 par = (i - 1) // 2
                 nodes[par].add_child(nodes[i])
 
+        self.encoding = encoding
         self.constants = nn.Parameter(torch.rand(c_counter), requires_grad=True)
         self.root = nodes[0]
 
     def optimize_constant(self, X, y, inner_loop_config: dict):
-        optimizer = torch.optim.LBFGS([self.constants])
-
         if inner_loop_config["loss"] == "mse":
             criterion = nn.MSELoss()
         else:
             raise NotImplementedError("only mse is supported")
 
-        def closure():
-            optimizer.zero_grad()
-            y_pred = self.forward(X)
-            loss = criterion(y_pred, y)
-            loss.backward()
-            return loss
+        if len(self.constants) > 0:
+            optimizer = torch.optim.LBFGS([self.constants])
 
-        for _ in range(inner_loop_config["iteration"]):
-            optimizer.step(closure)
+            def closure():
+                optimizer.zero_grad()
+                y_pred = self.forward(X)
+                loss = criterion(y_pred, y)
+                loss.backward()
+                return loss
 
-        loss = criterion(self.forward(X), y)
-        return loss
+            for _ in range(inner_loop_config["iteration"]):
+                curr_loss = optimizer.step(closure)
+                if torch.isnan(curr_loss) or torch.isinf(curr_loss):
+                    break
+
+        curr_loss = criterion(self.forward(X), y)
+        return curr_loss
 
     def forward(self, X):
         return self.root.eval(X, self.constants)
@@ -193,8 +197,6 @@ def evaluate_encodings(encodings, X, action_fns, action_arities, constants: dict
             action_idx = encodings[idx, i]
             left_results = results[idx, :, 2 * i + 1]
             right_results = results[idx, :, 2 * i + 2]
-            # print(left_results, right_results)
-            # print('----')
             results[idx, :, i] = action_fns[action_idx](left_results, right_results)
 
     y = results[:, :, 0]

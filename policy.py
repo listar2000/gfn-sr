@@ -6,7 +6,7 @@ from actions import get_next_node_indices
 
 class RNNForwardPolicy(nn.Module):
     def __init__(self, batch_size, hidden_dim, num_actions,
-                 num_layers=1, model='rnn', dropout=0.0, one_hot=True, device=None):
+                 num_layers=1, model='rnn', dropout=0.0, placeholder=-2, one_hot=True, device=None):
         super(RNNForwardPolicy, self).__init__()
 
         self.batch_size = batch_size
@@ -14,6 +14,7 @@ class RNNForwardPolicy(nn.Module):
         self.num_actions = num_actions
         self.num_layers = num_layers
         self.dropout = dropout
+        self.placeholder = placeholder
         self.one_hot = one_hot
         self.device = torch.device("cpu") if not device else device
 
@@ -29,9 +30,11 @@ class RNNForwardPolicy(nn.Module):
         else:
             raise NotImplementedError("unsupported model: " + model)
 
-        self.hidden = torch.zeros(self.num_layers, self.batch_size, self.hidden_size).to(device)
-
         self.fc = nn.Linear(hidden_dim, num_actions)
+        # self.init_hidden = nn.Parameter(data=torch.rand(self.num_layers, self.hidden_size), requires_grad=True) \
+        #     .to(self.device)
+        self.init_hidden = nn.Parameter(data=torch.zeros(self.num_layers, self.hidden_size), requires_grad=True) \
+            .to(self.device)
 
     def actions_to_one_hot(self, siblings, parents):
         sibling_oh = F.one_hot(siblings, num_classes=self.num_actions)
@@ -39,7 +42,10 @@ class RNNForwardPolicy(nn.Module):
         return torch.cat((sibling_oh, parent_oh), axis=1)
 
     def forward(self, encodings):
-        nodes_to_assign, siblings, parents = get_next_node_indices(encodings)
+        if encodings[0, 0] == self.placeholder:
+            self.hidden = self.init_hidden.repeat(1, len(encodings), 1)
+
+        nodes_to_assign, siblings, parents = get_next_node_indices(encodings, self.placeholder)
         if self.one_hot:
             rnn_input = self.actions_to_one_hot(siblings, parents)
         else:

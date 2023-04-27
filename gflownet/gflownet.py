@@ -39,7 +39,8 @@ class GFlowNet(nn.Module):
             probs: An NxA matrix of action probabilities
         """
         probs = self.env.mask(s) * probs
-        return probs / probs.sum(1).unsqueeze(1)
+        probs = probs / probs.sum(1).unsqueeze(1)
+        return probs
     
     def forward_probs(self, s):
         """
@@ -49,7 +50,10 @@ class GFlowNet(nn.Module):
             s: An NxD matrix representing N states
         """
         probs = self.forward_policy(s)
-        return self.mask_and_normalize(s, probs)
+        if torch.isnan(probs).any():
+            assert False
+        probs = self.mask_and_normalize(s, probs)
+        return probs
     
     def sample_states(self, s0, return_log=False):
         """
@@ -67,15 +71,14 @@ class GFlowNet(nn.Module):
         log = Log(s0, self.backward_policy, self.total_flow, self.env) if return_log else None
 
         while not done.all():
-            probs = self.forward_probs(s[~done])
+            probs = self.forward_probs(s)[~done, :]
             actions = Categorical(probs).sample()
-            s[~done] = self.env.update(s[~done], actions)
-            
-            if return_log:
-                log.log(s, probs, actions, done)
-
             terminated = actions == probs.shape[-1] - 1
+            old_done = done.clone()
             done[~done] = terminated
+            s[~done] = self.env.update(s[~done], actions[~terminated])
+            if return_log:
+                log.log(s, probs, actions, old_done)
         
         return (s, log) if return_log else s
     
