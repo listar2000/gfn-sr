@@ -1,4 +1,5 @@
 import torch
+import torch.autograd.profiler as profiler
 import argparse
 import matplotlib.pyplot as plt
 from env import SRTree
@@ -48,7 +49,7 @@ def train_gfn_sr(batch_size, num_epochs, show_plot=False):
         #     print(name, param.grad)
         opt.step()
         opt.zero_grad()
-        if i % 50 == 0:
+        if i % 10 == 0:
             p.set_description(f"{loss.item():.3f}")
             flows.append(log.total_flow.item())
             errs.append(loss.item())
@@ -63,10 +64,13 @@ def train_gfn_sr(batch_size, num_epochs, show_plot=False):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--batch_size", type=int, default=16)
-    parser.add_argument("--num_epochs", type=int, default=10000)
+    parser.add_argument("--num_epochs", type=int, default=500)
 
     args = parser.parse_args()
     batch_size = args.batch_size
     num_epochs = args.num_epochs
 
-    model, env = train_gfn_sr(batch_size, num_epochs, show_plot=True)
+    with torch.autograd.profiler.profile(use_cuda=True) as prof:
+        model, env = train_gfn_sr(batch_size, num_epochs, show_plot=True)
+    # for profiling purpose
+    print(prof)
