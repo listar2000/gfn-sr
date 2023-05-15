@@ -20,8 +20,9 @@ class SRTree(Env):
         # training configs for the inner loop
         if not inner_loop_config:
             inner_loop_config = {
-                "optim": "lbfgs",
-                "iteration": 100,
+                "optim": "rmsprop",
+                "iteration": 10,
+                "lr": 0.01,
                 "loss": "mse",
             }
         self.inner_loop_config = inner_loop_config

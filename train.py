@@ -29,12 +29,12 @@ def train_gfn_sr(batch_size, num_epochs, show_plot=False):
     X = torch.randn(20, 2)
     y = (X[:, 1] + X[:, 0]) * X[:, 0]
     action = Action(X.shape[1])
-    env = SRTree(X, y, action_space=action, max_depth=3)
+    env = SRTree(X, y, action_space=action, max_depth=3, loss="other")
 
     forward_policy = RNNForwardPolicy(batch_size, 128, env.num_actions)
     backward_policy = CanonicalBackwardPolicy(env.num_actions)
     model = GFlowNet(forward_policy, backward_policy, env)
-    opt = torch.optim.Adam(model.parameters(), lr=5e-3)
+    opt = torch.optim.Adam(model.parameters(), lr=1e-3)
 
     flows, errs = [], []
     for i in (p := tqdm(range(num_epochs))):
@@ -63,14 +63,11 @@ def train_gfn_sr(batch_size, num_epochs, show_plot=False):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--batch_size", type=int, default=16)
-    parser.add_argument("--num_epochs", type=int, default=500)
+    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--num_epochs", type=int, default=30000)
 
     args = parser.parse_args()
     batch_size = args.batch_size
     num_epochs = args.num_epochs
 
-    with torch.autograd.profiler.profile(use_cuda=True) as prof:
-        model, env = train_gfn_sr(batch_size, num_epochs, show_plot=True)
-    # for profiling purpose
-    print(prof)
+    model, env = train_gfn_sr(batch_size, num_epochs, show_plot=True)

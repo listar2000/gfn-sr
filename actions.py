@@ -125,20 +125,33 @@ class ExpressionTree(nn.Module):
         else:
             raise NotImplementedError("only mse is supported")
 
+        optim = inner_loop_config["optim"]
+
         if len(self.constants) > 0:
-            optimizer = torch.optim.LBFGS([self.constants])
+            if optim == 'lbfgs':
+                optimizer = torch.optim.LBFGS([self.constants])
 
-            def closure():
-                optimizer.zero_grad()
-                y_pred = self.forward(X)
-                loss = criterion(y_pred, y)
-                loss.backward()
-                return loss
+                def closure():
+                    optimizer.zero_grad()
+                    y_pred = self.forward(X)
+                    loss = criterion(y_pred, y)
+                    loss.backward()
+                    return loss
 
-            for _ in range(inner_loop_config["iteration"]):
-                curr_loss = optimizer.step(closure)
-                if torch.isnan(curr_loss) or torch.isinf(curr_loss):
-                    break
+                for _ in range(inner_loop_config["iteration"]):
+                    curr_loss = optimizer.step(closure)
+                    if torch.isnan(curr_loss) or torch.isinf(curr_loss):
+                        break
+            else:
+                optimizer = torch.optim.RMSprop([self.constants], lr=inner_loop_config['lr'])
+                for _ in range(inner_loop_config["iteration"]):
+                    optimizer.zero_grad()
+                    y_pred = self.forward(X)
+                    loss = criterion(y_pred, y)
+                    if torch.isnan(loss) or torch.isinf(loss):
+                        break
+                    loss.backward()
+                    optimizer.step()
 
         curr_loss = criterion(self.forward(X), y)
         return curr_loss
