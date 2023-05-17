@@ -18,8 +18,9 @@ class RNNForwardPolicy(nn.Module):
         self.one_hot = one_hot
         self.device = torch.device("cpu") if not device else device
 
-        # if using one_hot, we turn (sibling, parent) to 2 * num_actions vector
-        state_dim = 2 * num_actions if self.one_hot else 2
+        # if using one_hot, we turn (sibling, parent) to 2 * num_actions + 2 vector
+        # where the additional 2 denotes 2 placeholder symbols
+        state_dim = 2 * num_actions + 2 if self.one_hot else 2
 
         if model == 'rnn':
             self.rnn = nn.RNN(state_dim, hidden_dim, num_layers,
@@ -37,8 +38,11 @@ class RNNForwardPolicy(nn.Module):
             .to(self.device)
 
     def actions_to_one_hot(self, siblings, parents):
-        sibling_oh = F.one_hot(siblings, num_classes=self.num_actions)
-        parent_oh = F.one_hot(parents, num_classes=self.num_actions)
+        # leave the first
+        siblings[siblings == self.placeholder] = -1
+        parents[parents == self.placeholder] = -1
+        sibling_oh = F.one_hot(siblings + 1, num_classes=self.num_actions + 1)
+        parent_oh = F.one_hot(parents + 1, num_classes=self.num_actions + 1)
         return torch.cat((sibling_oh, parent_oh), axis=1)
 
     def forward(self, encodings):

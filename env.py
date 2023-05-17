@@ -2,6 +2,7 @@ from gflownet.env import Env
 from actions import Action, ExpressionTree
 import torch
 
+BEST_REWARDS = -torch.inf
 
 class SRTree(Env):
     def __init__(self, X: torch.Tensor, y: torch.Tensor, action_space: Action,
@@ -97,6 +98,15 @@ class SRTree(Env):
             nrmse = torch.sqrt(loss) / torch.std(self.y)
             rewards = torch.clamp(self.loss_thres / (self.loss_thres + nrmse), min=0.01)
         else:
+            # TODO: alpha1 * fitting loss + alpha2 * structure loss
             max_mse = ((self.y - self.y.mean()) ** 2).mean()
             rewards = torch.clamp(100 * (1.0 - loss / max_mse), min=0.01)
+
+        global BEST_REWARDS
+        if len(rewards) > 1 and torch.max(rewards) > BEST_REWARDS:
+            BEST_REWARDS = torch.max(rewards)
+            best_action = torch.argmax(rewards)
+            print(f"\nnew best reward: {BEST_REWARDS}")
+            best_expr = ExpressionTree(encodings[best_action], self.action_fns, self.action_arities, self.action_names)
+            print(f"expr: {best_expr.root}")
         return rewards

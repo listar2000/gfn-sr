@@ -116,7 +116,7 @@ class ExpressionTree(nn.Module):
                 nodes[par].add_child(nodes[i])
 
         self.encoding = encoding
-        self.constants = nn.Parameter(torch.rand(c_counter), requires_grad=True)
+        self.constants = nn.Parameter(torch.rand(c_counter), requires_grad=False)
         self.root = nodes[0]
 
     def optimize_constant(self, X, y, inner_loop_config: dict):
@@ -128,6 +128,7 @@ class ExpressionTree(nn.Module):
         optim = inner_loop_config["optim"]
 
         if len(self.constants) > 0:
+            self.constants.requires_grad = True
             if optim == 'lbfgs':
                 optimizer = torch.optim.LBFGS([self.constants])
 
@@ -152,6 +153,7 @@ class ExpressionTree(nn.Module):
                         break
                     loss.backward()
                     optimizer.step()
+            self.constants.requires_grad = False
 
         curr_loss = criterion(self.forward(X), y)
         return curr_loss
@@ -229,15 +231,17 @@ def get_next_node_indices(encodings, placeholder: int = -2):
         parents: a (M, ) vector of parents of `nodes_to_assign`, 0 if not exist
     """
     batch_size, _ = encodings.shape
-    siblings, parents = torch.zeros(batch_size, dtype=torch.long), torch.zeros(batch_size, dtype=torch.long)
+    siblings = torch.ones(batch_size, dtype=torch.long) * placeholder
 
     # get the indices of most recent nodes (to be assigned value) for each sample
     # we assume that the tree cannot be fully initialized
     nodes_to_assign = (encodings == placeholder).long().argmax(axis=1)
 
-    parents = torch.div(nodes_to_assign - 1, 2, rounding_mode='floor').clamp(min=0)
+    parent_idx = torch.div(nodes_to_assign - 1, 2, rounding_mode='floor').clamp(min=0)
+    parents = encodings[torch.arange(batch_size), parent_idx]
     is_right_node = nodes_to_assign % 2 == 0
-    siblings[is_right_node] = (nodes_to_assign[is_right_node] - 1).clamp(min=0)
+    sibling_idx = (nodes_to_assign[is_right_node] - 1).clamp(min=0)
+    siblings[is_right_node] = encodings[is_right_node, sibling_idx]
     return nodes_to_assign, siblings, parents
 
 

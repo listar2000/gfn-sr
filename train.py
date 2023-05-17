@@ -26,12 +26,13 @@ def train_plot(errs, flows):
 
 
 def train_gfn_sr(batch_size, num_epochs, show_plot=False):
-    X = torch.randn(20, 2)
-    y = (X[:, 1] + X[:, 0]) * X[:, 0]
+    torch.manual_seed(1234)
+    X = torch.empty(200, 3).uniform_(-1, 1) * 5
+    y = (X[:, 1] + X[:, 2]) * torch.exp(X[:, 0]) + torch.randn(200) * 0.1
     action = Action(X.shape[1])
-    env = SRTree(X, y, action_space=action, max_depth=3, loss="other")
+    env = SRTree(X, y, action_space=action, max_depth=4, loss="other")
 
-    forward_policy = RNNForwardPolicy(batch_size, 128, env.num_actions)
+    forward_policy = RNNForwardPolicy(batch_size, 500, env.num_actions, model="gru")
     backward_policy = CanonicalBackwardPolicy(env.num_actions)
     model = GFlowNet(forward_policy, backward_policy, env)
     opt = torch.optim.Adam(model.parameters(), lr=1e-3)
@@ -40,13 +41,14 @@ def train_gfn_sr(batch_size, num_epochs, show_plot=False):
     for i in (p := tqdm(range(num_epochs))):
         s0 = env.get_initial_states(batch_size)
         s, log = model.sample_states(s0, return_log=True)
+        if not torch.isfinite(log.rewards).all():
+            print(log.rewards)
+            assert False
         loss = trajectory_balance_loss(log.total_flow,
                                        log.rewards,
                                        log.fwd_probs,
                                        log.back_probs)
         loss.backward()
-        # for name, param in model.named_parameters():
-        #     print(name, param.grad)
         opt.step()
         opt.zero_grad()
         if i % 10 == 0:
@@ -58,16 +60,16 @@ def train_gfn_sr(batch_size, num_epochs, show_plot=False):
     if show_plot:
         train_plot(errs, flows)
 
-    return model, env
+    return model, env, errs
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--num_epochs", type=int, default=30000)
+    parser.add_argument("--num_epochs", type=int, default=5000)
 
     args = parser.parse_args()
     batch_size = args.batch_size
     num_epochs = args.num_epochs
 
-    model, env = train_gfn_sr(batch_size, num_epochs, show_plot=True)
+    model, env, errs = train_gfn_sr(batch_size, num_epochs, show_plot=True)
