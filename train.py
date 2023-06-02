@@ -27,8 +27,10 @@ def train_plot(errs, flows):
 
 def train_gfn_sr(batch_size, num_epochs, show_plot=False):
     torch.manual_seed(1234)
-    X = torch.empty(200, 3).uniform_(-1, 1) * 5
-    y = (X[:, 1] + X[:, 2]) * torch.exp(X[:, 0]) + torch.randn(200) * 0.1
+    X = torch.empty(200, 1).uniform_(0, 1) * 5
+    # y = (X[:, 1] + X[:, 2]) * torch.exp(X[:, 0]) + torch.randn(200) * 0.1
+    # y = X[:, 0] + X[:, 0] ** 2 + X[:, 0] ** 3 + torch.randn(200) * 0.1
+    y = torch.log(X[:, 0] + 1) + torch.log(X[:, 0] ** 2 + 1)
     action = Action(X.shape[1])
     env = SRTree(X, y, action_space=action, max_depth=4, loss="other")
 
@@ -66,7 +68,7 @@ def train_gfn_sr(batch_size, num_epochs, show_plot=False):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--num_epochs", type=int, default=5000)
+    parser.add_argument("--num_epochs", type=int, default=10000)
 
     args = parser.parse_args()
     batch_size = args.batch_size

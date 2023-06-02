@@ -9,7 +9,7 @@ class Action:
         'exp': torch.exp,
         'square': torch.square,
         'sqrt': torch.sqrt,
-        'tan': torch.tan
+        'log': torch.log
     }
 
     FUNCTIONS = {
