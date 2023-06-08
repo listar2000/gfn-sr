@@ -2,7 +2,6 @@ from gflownet.env import Env
 from actions import Action, ExpressionTree
 import torch
 
-BEST_REWARDS = -torch.inf
 
 class SRTree(Env):
     def __init__(self, X: torch.Tensor, y: torch.Tensor, action_space: Action,
@@ -27,6 +26,11 @@ class SRTree(Env):
                 "loss": "mse",
             }
         self.inner_loop_config = inner_loop_config
+        self.inner_eval_config = inner_loop_config.copy()
+        self.inner_eval_config["iteration"] = 100
+
+        self.best_reward = -torch.inf
+        self.best_expr = None
 
         self.X, self.y = X, y
 
@@ -102,11 +106,14 @@ class SRTree(Env):
             max_mse = ((self.y - self.y.mean()) ** 2).mean()
             rewards = torch.clamp(100 * (1.0 - loss / max_mse), min=0.01)
 
-        global BEST_REWARDS
-        if len(rewards) > 1 and torch.max(rewards) > BEST_REWARDS:
-            BEST_REWARDS = torch.max(rewards)
+        if len(rewards) > 1 and torch.max(rewards) > self.best_reward:
+            best_reward_vanilla = torch.max(rewards)
             best_action = torch.argmax(rewards)
-            print(f"\nnew best reward: {BEST_REWARDS}")
             best_expr = ExpressionTree(encodings[best_action], self.action_fns, self.action_arities, self.action_names)
-            print(f"expr: {best_expr.root}")
+            best_reward_optimized = best_expr.optimize_constant(self.X, self.y, self.inner_eval_config)
+            print(f"\nnew best reward (vanilla): {best_reward_vanilla}")
+            print(f"mse (optimized): {best_reward_optimized}")
+            print(f"expr: {str(best_expr)}")
+            self.best_reward = best_reward_vanilla
+            self.best_expr = best_expr
         return rewards

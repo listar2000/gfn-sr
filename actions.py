@@ -79,7 +79,10 @@ class ActionNode(object):
             left_expr = self.left.expr(constants)
             return f'{self.name}({left_expr})'
         elif self.name == 'c':
-            return round(constants[self.c_index].item(), 2) if constants else 'c'
+            if constants is not None:
+                return round(constants[self.c_index].item(), 2)
+            else:
+                return 'c'
         else:
             return self.name
 

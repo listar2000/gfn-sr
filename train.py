@@ -29,10 +29,12 @@ def train_gfn_sr(batch_size, num_epochs, show_plot=False):
     torch.manual_seed(1234)
     X = torch.empty(200, 1).uniform_(0, 1) * 5
     # y = (X[:, 1] + X[:, 2]) * torch.exp(X[:, 0]) + torch.randn(200) * 0.1
-    # y = X[:, 0] + X[:, 0] ** 2 + X[:, 0] ** 3 + torch.randn(200) * 0.1
-    y = torch.log(X[:, 0] + 1) + torch.log(X[:, 0] ** 2 + 1)
+    # y = X[:, 0] + X[:, 0] ** 2 + X[:, 0] ** 3 + X[:, 0] ** 4 + X[:, 0] ** 5
+    # y = torch.log(X[:, 0] + 1) + torch.log(X[:, 0] ** 2 + 1)
+    # y = torch.sqrt(X[:, 0])
+    y = X[:, 0] ** 5 + X[:, 0] ** 4 + X[:, 0] ** 3 + X[:, 0] ** 2 + X[:, 0]
     action = Action(X.shape[1])
-    env = SRTree(X, y, action_space=action, max_depth=4, loss="other")
+    env = SRTree(X, y, action_space=action, max_depth=5, loss="other")
 
     forward_policy = RNNForwardPolicy(batch_size, 500, env.num_actions, model="gru")
     backward_policy = CanonicalBackwardPolicy(env.num_actions)
