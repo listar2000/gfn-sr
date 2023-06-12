@@ -96,7 +96,7 @@ NGUYEN_TESTS = [
 if __name__ == "__main__":
     batch_size = 32
     num_epochs = 50000
-    json_path = "./benchmark/gru_1h.json"
+    json_path = "./benchmark/lstm_1h.json"
     test_log = []
     for idx, test in enumerate(NGUYEN_TESTS):
         print(f"start benchmarking test {idx}")
@@ -106,7 +106,7 @@ if __name__ == "__main__":
         action = Action(xs.shape[1])
         env = SRTree(xs, ys, action_space=action, max_depth=depth, loss="other")
 
-        forward_policy = RNNForwardPolicy(batch_size, 500, env.num_actions, num_layers=1, model="gru")
+        forward_policy = RNNForwardPolicy(batch_size, 500, env.num_actions, num_layers=2, model="lstm")
         backward_policy = CanonicalBackwardPolicy(env.num_actions)
         model = GFlowNet(forward_policy, backward_policy, env)
         opt = torch.optim.Adam(model.parameters(), lr=1e-3)

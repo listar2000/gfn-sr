@@ -17,25 +17,35 @@ class RNNForwardPolicy(nn.Module):
         self.placeholder = placeholder
         self.one_hot = one_hot
         self.device = torch.device("cpu") if not device else device
+        self.model = model
 
         # if using one_hot, we turn (sibling, parent) to 2 * num_actions + 2 vector
         # where the additional 2 denotes 2 placeholder symbols
         state_dim = 2 * num_actions + 2 if self.one_hot else 2
 
+        print("state dim", state_dim)
+        print('hidden_dim', hidden_dim)
+        print(self.model)
         if model == 'rnn':
             self.rnn = nn.RNN(state_dim, hidden_dim, num_layers,
                               batch_first=True, dropout=self.dropout).to(device)
         elif model == 'gru':
             self.rnn = nn.GRU(state_dim, hidden_dim, num_layers,
                               batch_first=True, dropout=self.dropout).to(device)
+        elif model == 'lstm':
+            self.rnn = nn.LSTM(state_dim, hidden_dim, num_layers,
+                               batch_first=True, dropout=self.dropout).to(device)
         else:
             raise NotImplementedError("unsupported model: " + model)
 
         self.fc = nn.Linear(hidden_dim, num_actions)
         # self.init_hidden = nn.Parameter(data=torch.rand(self.num_layers, self.hidden_size), requires_grad=True) \
         #     .to(self.device)
-        self.init_hidden = nn.Parameter(data=torch.zeros(self.num_layers, self.hidden_size), requires_grad=True) \
+        self.h0 = nn.Parameter(data=torch.zeros(self.num_layers, self.hidden_size), requires_grad=True) \
             .to(self.device)
+        self.c0 = nn.Parameter(data=torch.zeros(self.num_layers, self.hidden_size), requires_grad=True) \
+            .to(self.device)
+
 
     def actions_to_one_hot(self, siblings, parents):
         # leave the first
@@ -47,7 +57,14 @@ class RNNForwardPolicy(nn.Module):
 
     def forward(self, encodings):
         if encodings[0, 0] == self.placeholder:
-            self.hidden = self.init_hidden.repeat(1, len(encodings), 1)
+            # print("batch_size", self.batch_size)
+            self.h0 = nn.Parameter(data=torch.zeros(self.num_layers, encodings.size(0), self.hidden_size), requires_grad=True) \
+                .to(self.device)
+            # print("H0", self.h0.shape)
+            if self.model == 'lstm':
+                self.c0 = nn.Parameter(data=torch.zeros(self.num_layers, encodings.size(0), self.hidden_size),
+                                       requires_grad=True) \
+                    .to(self.device)
 
         nodes_to_assign, siblings, parents = get_next_node_indices(encodings, self.placeholder)
         if self.one_hot:
@@ -55,9 +72,16 @@ class RNNForwardPolicy(nn.Module):
         else:
             rnn_input = torch.stack([siblings, parents], axis=1)
 
+        # print("RNN input", rnn_input.shape)
         # match dimension of the hidden state
         rnn_input = rnn_input.unsqueeze(1).float()
-        output, self.hidden = self.rnn(rnn_input, self.hidden)
+        # print("RNN input reshaped", rnn_input.shape)
+
+        rnn_input = rnn_input.float()
+        if self.model == 'lstm':
+            output, _ = self.rnn(rnn_input, (self.h0, self.c0))
+        else:
+            output, _ = self.rnn(rnn_input, self.h0)
         # Get the last output in the sequence
         output = self.fc(output[:, -1, :])
         probabilities = F.softmax(output, dim=1)
