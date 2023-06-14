@@ -39,12 +39,7 @@ class RNNForwardPolicy(nn.Module):
             raise NotImplementedError("unsupported model: " + model)
 
         self.fc = nn.Linear(hidden_dim, num_actions)
-        # self.init_hidden = nn.Parameter(data=torch.rand(self.num_layers, self.hidden_size), requires_grad=True) \
-        #     .to(self.device)
-        self.h0 = nn.Parameter(data=torch.zeros(self.num_layers, self.hidden_size), requires_grad=True) \
-            .to(self.device)
-        self.c0 = nn.Parameter(data=torch.zeros(self.num_layers, self.hidden_size), requires_grad=True) \
-            .to(self.device)
+        self.init_hidden = torch.zeros(self.num_layers, self.hidden_size)
 
 
     def actions_to_one_hot(self, siblings, parents):
@@ -57,14 +52,9 @@ class RNNForwardPolicy(nn.Module):
 
     def forward(self, encodings):
         if encodings[0, 0] == self.placeholder:
-            # print("batch_size", self.batch_size)
-            self.h0 = nn.Parameter(data=torch.zeros(self.num_layers, encodings.size(0), self.hidden_size), requires_grad=True) \
-                .to(self.device)
-            # print("H0", self.h0.shape)
+            self.h0 = self.init_hidden.unsqueeze(1).repeat(1, len(encodings), 1)
             if self.model == 'lstm':
-                self.c0 = nn.Parameter(data=torch.zeros(self.num_layers, encodings.size(0), self.hidden_size),
-                                       requires_grad=True) \
-                    .to(self.device)
+                self.c0 = torch.zeros(self.num_layers, encodings.size(0), self.hidden_size)
 
         nodes_to_assign, siblings, parents = get_next_node_indices(encodings, self.placeholder)
         if self.one_hot:
@@ -79,9 +69,9 @@ class RNNForwardPolicy(nn.Module):
 
         rnn_input = rnn_input.float()
         if self.model == 'lstm':
-            output, _ = self.rnn(rnn_input, (self.h0, self.c0))
+            output, (self.h0, self.c0) = self.rnn(rnn_input, (self.h0, self.c0))
         else:
-            output, _ = self.rnn(rnn_input, self.h0)
+            output, self.h0 = self.rnn(rnn_input, self.h0)
         # Get the last output in the sequence
         output = self.fc(output[:, -1, :])
         probabilities = F.softmax(output, dim=1)
