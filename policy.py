@@ -35,11 +35,12 @@ class RNNForwardPolicy(nn.Module):
         elif model == 'lstm':
             self.rnn = nn.LSTM(state_dim, hidden_dim, num_layers,
                                batch_first=True, dropout=self.dropout).to(device)
+            self.init_c0 = torch.zeros(self.num_layers, self.hidden_size)
         else:
             raise NotImplementedError("unsupported model: " + model)
 
         self.fc = nn.Linear(hidden_dim, num_actions)
-        self.init_hidden = torch.zeros(self.num_layers, self.hidden_size)
+        self.init_h0 = torch.zeros(self.num_layers, self.hidden_size)
 
 
     def actions_to_one_hot(self, siblings, parents):
@@ -52,9 +53,10 @@ class RNNForwardPolicy(nn.Module):
 
     def forward(self, encodings):
         if encodings[0, 0] == self.placeholder:
-            self.h0 = self.init_hidden.unsqueeze(1).repeat(1, len(encodings), 1)
+            self.h0 = self.init_h0.unsqueeze(1).repeat(1, len(encodings), 1)
             if self.model == 'lstm':
-                self.c0 = torch.zeros(self.num_layers, encodings.size(0), self.hidden_size)
+                self.c0 = self.init_c0.unsqueeze(1).repeat(1, len(encodings), 1)
+                # self.c0 = torch.zeros(self.num_layers, encodings.size(0), self.hidden_size)
 
         nodes_to_assign, siblings, parents = get_next_node_indices(encodings, self.placeholder)
         if self.one_hot:
