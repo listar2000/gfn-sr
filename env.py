@@ -1,5 +1,6 @@
 from gflownet.env import Env
-from actions import Action, ExpressionTree
+from actions import Action, ExpressionTree, optimize_constant, ETEnsemble
+import torch.nn as nn
 import torch
 
 
@@ -21,13 +22,13 @@ class SRTree(Env):
         if not inner_loop_config:
             inner_loop_config = {
                 "optim": "rmsprop",
-                "iteration": 10,
+                "iteration": 15,
                 "lr": 0.01,
                 "loss": "mse",
             }
         self.inner_loop_config = inner_loop_config
         self.inner_eval_config = inner_loop_config.copy()
-        self.inner_eval_config["iteration"] = 100
+        self.inner_eval_config.update({'iteration': 100, 'optim': 'lbfgs'})
 
         self.best_reward = -torch.inf
         self.best_expr = None
@@ -89,14 +90,24 @@ class SRTree(Env):
         """
         N = len(encodings)
         loss = torch.zeros(N)
+        expressions = []
         for i in range(N):
             expression = ExpressionTree(encodings[i], self.action_fns, self.action_arities, self.action_names)
-            # perform inner optimization
-            final_reward = expression.optimize_constant(self.X, self.y, self.inner_loop_config)
-            if torch.isnan(final_reward) or torch.isinf(final_reward):
-                loss[i] = torch.inf
-            else:
-                loss[i] = final_reward
+            expressions.append(expression)
+
+        # perform inner optimization
+        ensemble = ETEnsemble(expressions)
+        optimize_constant(ensemble, self.X, self.y, self.inner_loop_config)
+
+        # compute final rewards/loss
+        for i in range(N):
+            with torch.no_grad():
+                criterion = nn.MSELoss()
+                final_reward = criterion(expressions[i](self.X), self.y)
+                if torch.isnan(final_reward) or torch.isinf(final_reward):
+                    loss[i] = torch.inf
+                else:
+                    loss[i] = final_reward
 
         if self.loss == "nrmse":
             nrmse = torch.sqrt(loss) / torch.std(self.y)
@@ -109,11 +120,10 @@ class SRTree(Env):
         if len(rewards) > 1 and torch.max(rewards) > self.best_reward:
             best_reward_vanilla = torch.max(rewards)
             best_action = torch.argmax(rewards)
-            best_expr = ExpressionTree(encodings[best_action], self.action_fns, self.action_arities, self.action_names)
-            best_reward_optimized = best_expr.optimize_constant(self.X, self.y, self.inner_eval_config)
-            print(f"\nnew best reward (vanilla): {best_reward_vanilla}")
-            print(f"mse (optimized): {best_reward_optimized}")
-            print(f"expr: {str(best_expr)}")
+            best_expr = expressions[best_action]
+            print(f"\nnew best reward (vanilla): { best_reward_vanilla }")
+            print(f"mse (optimized): { loss[best_action] }")
+            print(f"expr: { str(best_expr) }")
             self.best_reward = best_reward_vanilla
             self.best_expr = best_expr
         return rewards

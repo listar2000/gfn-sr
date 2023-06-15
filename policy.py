@@ -23,9 +23,6 @@ class RNNForwardPolicy(nn.Module):
         # where the additional 2 denotes 2 placeholder symbols
         state_dim = 2 * num_actions + 2 if self.one_hot else 2
 
-        print("state dim", state_dim)
-        print('hidden_dim', hidden_dim)
-        print(self.model)
         if model == 'rnn':
             self.rnn = nn.RNN(state_dim, hidden_dim, num_layers,
                               batch_first=True, dropout=self.dropout).to(device)
@@ -67,7 +64,6 @@ class RNNForwardPolicy(nn.Module):
         # print("RNN input", rnn_input.shape)
         # match dimension of the hidden state
         rnn_input = rnn_input.unsqueeze(1).float()
-        # print("RNN input reshaped", rnn_input.shape)
 
         rnn_input = rnn_input.float()
         if self.model == 'lstm':

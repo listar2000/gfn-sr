@@ -1,3 +1,5 @@
+from typing import List
+
 import torch
 from torch import nn
 
@@ -61,7 +63,7 @@ class ActionNode(object):
         self.fn = action_fns[index]
         self.arity = action_arities[index]
         self.left, self.right = None, None
-        self.c_index = c_index # for constant
+        self.c_index = c_index  # for constant
 
     def add_child(self, child=None):
         if not self.left:
@@ -119,53 +121,81 @@ class ExpressionTree(nn.Module):
                 nodes[par].add_child(nodes[i])
 
         self.encoding = encoding
-        self.constants = nn.Parameter(torch.rand(c_counter), requires_grad=False)
+        self.constants = nn.Parameter(torch.rand(c_counter), requires_grad=True)
         self.root = nodes[0]
-
-    def optimize_constant(self, X, y, inner_loop_config: dict):
-        if inner_loop_config["loss"] == "mse":
-            criterion = nn.MSELoss()
-        else:
-            raise NotImplementedError("only mse is supported")
-
-        optim = inner_loop_config["optim"]
-
-        if len(self.constants) > 0:
-            self.constants.requires_grad = True
-            if optim == 'lbfgs':
-                optimizer = torch.optim.LBFGS([self.constants])
-
-                def closure():
-                    optimizer.zero_grad()
-                    y_pred = self.forward(X)
-                    loss = criterion(y_pred, y)
-                    loss.backward()
-                    return loss
-
-                for _ in range(inner_loop_config["iteration"]):
-                    curr_loss = optimizer.step(closure)
-                    if torch.isnan(curr_loss) or torch.isinf(curr_loss):
-                        break
-            else:
-                optimizer = torch.optim.RMSprop([self.constants], lr=inner_loop_config['lr'])
-                for _ in range(inner_loop_config["iteration"]):
-                    optimizer.zero_grad()
-                    y_pred = self.forward(X)
-                    loss = criterion(y_pred, y)
-                    if torch.isnan(loss) or torch.isinf(loss):
-                        break
-                    loss.backward()
-                    optimizer.step()
-            self.constants.requires_grad = False
-
-        curr_loss = criterion(self.forward(X), y)
-        return curr_loss
 
     def forward(self, X):
         return self.root.eval(X, self.constants)
 
     def __str__(self):
         return self.root.expr(self.constants)
+
+
+class ETEnsemble(nn.Module):
+    """
+    An ensemble of expression trees (with constant terms)
+    Credits to https://github.com/dandip/DSRPytorch/blob/main/expression_utils.py
+    """
+    def __init__(self, expressions: List[ExpressionTree]):
+        super().__init__()
+        expressions = [expression for expression in expressions if len(expression.constants) > 0]
+        self.expressions = torch.nn.ModuleList(expressions)
+
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        futures = [torch.jit.fork(expression, X) for expression in self.expressions]
+        results = [torch.jit.wait(fut) for fut in futures]
+        return torch.stack(results, dim=0)
+
+
+def optimize_constant(model, X: torch.Tensor, y: torch.Tensor, inner_loop_config: dict):
+    if inner_loop_config["loss"] == "mse":
+        criterion = nn.MSELoss()
+    else:
+        raise NotImplementedError("only mse is supported")
+
+    optim = inner_loop_config["optim"]
+
+    if isinstance(model, ExpressionTree):
+        parameters = [model.constants]
+    elif isinstance(model, ETEnsemble):
+        parameters = [m.constants for m in model.expressions]
+        y = y.repeat(len(model.expressions), 1)  # make sure the dimension aligns
+    else:
+        raise ValueError("Invalid model type")
+
+    if not len(parameters):
+        return
+
+    if optim == 'lbfgs':
+        optimizer = torch.optim.LBFGS(parameters)
+        def closure():
+            optimizer.zero_grad()
+            y_pred = model(X)
+            loss = criterion(y_pred, y)
+            loss.backward()
+            return loss
+
+        for _ in range(inner_loop_config["iteration"]):
+            curr_loss = optimizer.step(closure)
+            if torch.isnan(curr_loss) or torch.isinf(curr_loss):
+                break
+
+    else:
+        if optim == 'rmsprop':
+            optimizer = torch.optim.RMSprop(parameters, lr=inner_loop_config['lr'])
+        elif optim == 'adam':
+            optimizer = torch.optim.Adam(parameters, lr=inner_loop_config['lr'])
+        else:
+            raise ValueError("Invalid optimizer type")
+
+        for _ in range(inner_loop_config["iteration"]):
+            optimizer.zero_grad()
+            y_pred = model(X)
+            loss = criterion(y_pred, y)
+            if torch.isnan(loss) or torch.isinf(loss):
+                break
+            loss.backward()
+            optimizer.step()
 
 
 def evaluate_encodings(encodings, X, action_fns, action_arities, constants: dict = None):
@@ -261,6 +291,3 @@ if __name__ == "__main__":
     action = Action(2)
     encoding = torch.tensor([9, 0, 1])
     tree = ExpressionTree(encoding, action.action_fns, action.action_arities, action.action_names)
-
-
-
