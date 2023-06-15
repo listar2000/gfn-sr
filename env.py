@@ -3,6 +3,8 @@ from actions import Action, ExpressionTree, optimize_constant, ETEnsemble
 import torch.nn as nn
 import torch
 
+from sympy import *
+
 
 class SRTree(Env):
     def __init__(self, X: torch.Tensor, y: torch.Tensor, action_space: Action,
