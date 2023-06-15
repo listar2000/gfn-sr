@@ -121,8 +121,10 @@ class SRTree(Env):
             best_reward_vanilla = torch.max(rewards)
             best_action = torch.argmax(rewards)
             best_expr = expressions[best_action]
+            optimize_constant(best_expr, self.X, self.y, self.inner_eval_config)
+            loss_optmized = criterion(best_expr(self.X), self.y)
             print(f"\nnew best reward (vanilla): { best_reward_vanilla }")
-            print(f"mse (optimized): { loss[best_action] }")
+            print(f"mse (pre/post optimized): { loss[best_action] }/{ loss_optmized }")
             print(f"expr: { str(best_expr) }")
             self.best_reward = best_reward_vanilla
             self.best_expr = best_expr

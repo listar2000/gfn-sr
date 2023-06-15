@@ -138,8 +138,14 @@ class ETEnsemble(nn.Module):
     """
     def __init__(self, expressions: List[ExpressionTree]):
         super().__init__()
-        expressions = [expression for expression in expressions if len(expression.constants) > 0]
-        self.expressions = torch.nn.ModuleList(expressions)
+        self.nc = 0
+        self.expressions = []
+        for expression in expressions:
+            nc = len(expression.constants)
+            if nc > 0:
+                self.expressions.append(expression)
+                self.nc += nc
+        self.expressions = torch.nn.ModuleList(self.expressions)
 
     def forward(self, X: torch.Tensor) -> torch.Tensor:
         futures = [torch.jit.fork(expression, X) for expression in self.expressions]
@@ -148,23 +154,24 @@ class ETEnsemble(nn.Module):
 
 
 def optimize_constant(model, X: torch.Tensor, y: torch.Tensor, inner_loop_config: dict):
+    if isinstance(model, ExpressionTree):
+        if not len(model.constants):
+            return
+        parameters = [model.constants]
+    elif isinstance(model, ETEnsemble):
+        if not model.nc:
+            return
+        parameters = model.parameters()
+        y = y.repeat(len(model.expressions), 1)  # make sure the dimension aligns
+    else:
+        raise ValueError("Invalid model type")
+
     if inner_loop_config["loss"] == "mse":
         criterion = nn.MSELoss()
     else:
         raise NotImplementedError("only mse is supported")
 
     optim = inner_loop_config["optim"]
-
-    if isinstance(model, ExpressionTree):
-        parameters = [model.constants]
-    elif isinstance(model, ETEnsemble):
-        parameters = [m.constants for m in model.expressions]
-        y = y.repeat(len(model.expressions), 1)  # make sure the dimension aligns
-    else:
-        raise ValueError("Invalid model type")
-
-    if not len(parameters):
-        return
 
     if optim == 'lbfgs':
         optimizer = torch.optim.LBFGS(parameters)
