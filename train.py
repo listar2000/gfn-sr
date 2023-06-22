@@ -1,5 +1,5 @@
 import torch
-import torch.autograd.profiler as profiler
+from torch.profiler import profile, record_function, ProfilerActivity
 import argparse
 import matplotlib.pyplot as plt
 from env import SRTree
@@ -25,23 +25,24 @@ def train_plot(errs, flows):
     plt.show()
 
 
-def train_gfn_sr(batch_size, num_epochs, show_plot=False):
+def train_gfn_sr(batch_size, num_epochs, show_plot=False, use_gpu=True):
     torch.manual_seed(1234)
+    device = torch.device("cuda") if use_gpu and torch.cuda.is_available() else torch.device("cpu")
+    print("training started with device", device)
     X = torch.empty(200, 1).uniform_(0, 1) * 5
-    # y = (X[:, 1] + X[:, 2]) * torch.exp(X[:, 0]) + torch.randn(200) * 0.1
-    # y = X[:, 0] + X[:, 0] ** 2 + X[:, 0] ** 3 + X[:, 0] ** 4 + X[:, 0] ** 5
-    # y = torch.log(X[:, 0] + 1) + torch.log(X[:, 0] ** 2 + 1)
     y = X[:, 0] + 3
     action = Action(X.shape[1])
     env = SRTree(X, y, action_space=action, max_depth=3, loss="other")
 
-    forward_policy = RNNForwardPolicy(batch_size, 500, env.num_actions, model="gru")
+    forward_policy = RNNForwardPolicy(batch_size, 250, env.num_actions, 2, model="lstm", device=device)
     backward_policy = CanonicalBackwardPolicy(env.num_actions)
     model = GFlowNet(forward_policy, backward_policy, env)
     params = [param for param in model.parameters() if param.requires_grad]
     opt = torch.optim.Adam(params, lr=1e-3)
 
     flows, errs = [], []
+    # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
+    #     with record_function("model_training"):
     for i in (p := tqdm(range(num_epochs))):
         s0 = env.get_initial_states(batch_size)
         s, log = model.sample_states(s0, return_log=True)
@@ -64,6 +65,7 @@ def train_gfn_sr(batch_size, num_epochs, show_plot=False):
     if show_plot:
         train_plot(errs, flows)
 
+    # print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
     return model, env, errs
 
 
@@ -76,4 +78,4 @@ if __name__ == "__main__":
     batch_size = args.batch_size
     num_epochs = args.num_epochs
 
-    model, env, errs = train_gfn_sr(batch_size, num_epochs, show_plot=True)
+    model, env, errs = train_gfn_sr(batch_size, num_epochs, show_plot=False, use_gpu=True)

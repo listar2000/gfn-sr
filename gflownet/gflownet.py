@@ -23,10 +23,11 @@ class GFlowNet(nn.Module):
             function
         """
         super().__init__()
-        self.total_flow = Parameter(torch.ones(1))
         self.forward_policy = forward_policy
         self.backward_policy = backward_policy
         self.env = env
+        # the total_flow is a learnable param
+        self.total_flow = Parameter(torch.ones(1))
     
     def mask_and_normalize(self, s, probs):
         """

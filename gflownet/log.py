@@ -62,8 +62,9 @@ class Log:
         _actions = -torch.ones(self.num_samples, 1).long()
         _actions[~done] = actions.unsqueeze(1)
         self._actions.append(_actions)
-        
-        self.rewards[just_finished] = self.env.reward(s[just_finished])
+
+        if just_finished.any():
+            self.rewards[just_finished] = self.env.reward(s[just_finished])
     
     @property
     def traj(self):

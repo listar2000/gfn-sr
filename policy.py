@@ -25,20 +25,19 @@ class RNNForwardPolicy(nn.Module):
 
         if model == 'rnn':
             self.rnn = nn.RNN(state_dim, hidden_dim, num_layers,
-                              batch_first=True, dropout=self.dropout).to(device)
+                              batch_first=True, dropout=self.dropout).to(self.device)
         elif model == 'gru':
             self.rnn = nn.GRU(state_dim, hidden_dim, num_layers,
-                              batch_first=True, dropout=self.dropout).to(device)
+                              batch_first=True, dropout=self.dropout).to(self.device)
         elif model == 'lstm':
             self.rnn = nn.LSTM(state_dim, hidden_dim, num_layers,
-                               batch_first=True, dropout=self.dropout).to(device)
-            self.init_c0 = torch.zeros(self.num_layers, self.hidden_size)
+                               batch_first=True, dropout=self.dropout).to(self.device)
+            self.init_c0 = torch.zeros(self.num_layers, self.hidden_size).to(self.device)
         else:
             raise NotImplementedError("unsupported model: " + model)
 
-        self.fc = nn.Linear(hidden_dim, num_actions)
-        self.init_h0 = torch.zeros(self.num_layers, self.hidden_size)
-
+        self.fc = nn.Linear(hidden_dim, num_actions).to(self.device)
+        self.init_h0 = torch.zeros(self.num_layers, self.hidden_size).to(self.device)
 
     def actions_to_one_hot(self, siblings, parents):
         # leave the first
@@ -53,15 +52,13 @@ class RNNForwardPolicy(nn.Module):
             self.h0 = self.init_h0.unsqueeze(1).repeat(1, len(encodings), 1)
             if self.model == 'lstm':
                 self.c0 = self.init_c0.unsqueeze(1).repeat(1, len(encodings), 1)
-                # self.c0 = torch.zeros(self.num_layers, encodings.size(0), self.hidden_size)
 
         nodes_to_assign, siblings, parents = get_next_node_indices(encodings, self.placeholder)
         if self.one_hot:
-            rnn_input = self.actions_to_one_hot(siblings, parents)
+            rnn_input = self.actions_to_one_hot(siblings, parents).to(self.device)
         else:
-            rnn_input = torch.stack([siblings, parents], axis=1)
+            rnn_input = torch.stack([siblings, parents], axis=1).to(self.device)
 
-        # print("RNN input", rnn_input.shape)
         # match dimension of the hidden state
         rnn_input = rnn_input.unsqueeze(1).float()
 
@@ -74,7 +71,7 @@ class RNNForwardPolicy(nn.Module):
         output = self.fc(output[:, -1, :])
         probabilities = F.softmax(output, dim=1)
 
-        return probabilities
+        return probabilities.cpu()
 
 
 class CanonicalBackwardPolicy(nn.Module):
