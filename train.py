@@ -1,5 +1,4 @@
 import torch
-from torch.profiler import profile, record_function, ProfilerActivity
 import argparse
 import matplotlib.pyplot as plt
 from env import SRTree
@@ -41,8 +40,7 @@ def train_gfn_sr(batch_size, num_epochs, show_plot=False, use_gpu=True):
     opt = torch.optim.Adam(params, lr=1e-3)
 
     flows, errs = [], []
-    # with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
-    #     with record_function("model_training"):
+
     for i in (p := tqdm(range(num_epochs))):
         s0 = env.get_initial_states(batch_size)
         s, log = model.sample_states(s0, return_log=True)
@@ -65,8 +63,21 @@ def train_gfn_sr(batch_size, num_epochs, show_plot=False, use_gpu=True):
     if show_plot:
         train_plot(errs, flows)
 
-    # print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
     return model, env, errs
+
+
+def run_torch_profile(prof_batch=32, prof_epochs=3, use_gpu=False):
+    """
+    Function for profiling the computation time of the model. See
+    https://pytorch.org/tutorials/recipes/recipes/profiler_recipe.html
+    for documentation and examples.
+    """
+    print("Starting torch profiling...")
+    from torch.profiler import profile, record_function, ProfilerActivity
+    with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
+        with record_function("model_training"):
+            train_gfn_sr(prof_batch, prof_epochs, show_plot=False, use_gpu=use_gpu)
+    print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=10))
 
 
 if __name__ == "__main__":
@@ -78,4 +89,5 @@ if __name__ == "__main__":
     batch_size = args.batch_size
     num_epochs = args.num_epochs
 
-    model, env, errs = train_gfn_sr(batch_size, num_epochs, show_plot=False, use_gpu=True)
+    # model, env, errs = train_gfn_sr(batch_size, num_epochs, show_plot=False, use_gpu=True)
+    run_torch_profile()
