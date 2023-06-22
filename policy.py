@@ -3,6 +3,62 @@ from torch import nn
 import torch.nn.functional as F
 from actions import get_next_node_indices
 
+import torch
+import torch.nn as nn
+
+
+class TransformerForwardPolicy(nn.Module):
+    def __init__(self, batch_size, hidden_size, feed_forward_size, num_actions, model='Transformer',
+                 num_layers=4, num_heads=4, placeholder=-2, one_hot=True, device=None):
+        super(TransformerForwardPolicy, self).__init__()
+
+        self.batch_size = batch_size
+        self.hidden_size = hidden_size
+        self.num_actions = num_actions
+        self.num_layers = num_layers
+        self.placeholder = placeholder
+        self.one_hot = one_hot
+        self.device = torch.device("cpu") if not device else device
+
+        # if using one_hot, we turn (sibling, parent) to 2 * num_actions + 2 vector
+        # where the additional 2 denotes 2 placeholder symbols
+        state_dim = 2 * num_actions + 2 if self.one_hot else 2
+
+        self.embedding = nn.Embedding(state_dim, hidden_size)
+        self.encoder = nn.TransformerEncoder(
+            nn.TransformerEncoderLayer(hidden_size, num_heads, feed_forward_size),
+            num_layers
+        )
+        self.decoder = nn.Linear(hidden_size, state_dim)
+
+        self.fc = nn.Linear(state_dim, num_actions).to(self.device)
+
+    def actions_to_one_hot(self, siblings, parents):
+        # leave the first
+        siblings[siblings == self.placeholder] = -1
+        parents[parents == self.placeholder] = -1
+        sibling_oh = F.one_hot(siblings + 1, num_classes=self.num_actions + 1)
+        parent_oh = F.one_hot(parents + 1, num_classes=self.num_actions + 1)
+        # print("shape", torch.cat((sibling_oh, parent_oh), axis=1).shape)
+        return torch.cat((sibling_oh, parent_oh), axis=1)
+
+    def forward(self, encodings):
+        nodes_to_assign, siblings, parents = get_next_node_indices(encodings, self.placeholder)
+        if self.one_hot:
+            input_seq = self.actions_to_one_hot(siblings, parents).to(self.device)
+        else:
+            input_seq = torch.stack([siblings, parents], axis=1).to(self.device)
+
+        embedded = self.embedding(input_seq)
+        encoded = self.encoder(embedded)
+        output = self.decoder(encoded)
+
+        output = self.fc(output[:, -1, :])
+        probabilities = F.softmax(output, dim=-1)
+        # print("input seq shape", input_seq.shape)
+        # print("probabilities shape", probabilities.shape)
+        return probabilities.cpu()
+
 
 class RNNForwardPolicy(nn.Module):
     def __init__(self, batch_size, hidden_dim, num_actions,
@@ -45,6 +101,7 @@ class RNNForwardPolicy(nn.Module):
         parents[parents == self.placeholder] = -1
         sibling_oh = F.one_hot(siblings + 1, num_classes=self.num_actions + 1)
         parent_oh = F.one_hot(parents + 1, num_classes=self.num_actions + 1)
+        print("shape", torch.cat((sibling_oh, parent_oh), axis=1).shape)
         return torch.cat((sibling_oh, parent_oh), axis=1)
 
     def forward(self, encodings):
@@ -71,6 +128,8 @@ class RNNForwardPolicy(nn.Module):
         output = self.fc(output[:, -1, :])
         probabilities = F.softmax(output, dim=1)
 
+        print("input seq shape", rnn_input.shape)
+        print("probabilities shape", probabilities.shape)
         return probabilities.cpu()
 
 
