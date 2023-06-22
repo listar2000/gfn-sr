@@ -3,6 +3,8 @@ from typing import List
 import torch
 from torch import nn
 
+from sympy import *
+
 
 class Action:
     OPERATORS = {
@@ -73,12 +75,15 @@ class ActionNode(object):
         else:
             raise RuntimeError("adding more than 2 children")
 
-    def expr(self, constants=None):
+    def expr(self, constants=None, infix=True):
         if self.arity == 2:
-            left_expr, right_expr = self.left.expr(constants), self.right.expr(constants)
-            return f'{self.name}({left_expr}, {right_expr})'
+            left_expr, right_expr = self.left.expr(constants, infix), self.right.expr(constants, infix)
+            if infix:
+                return f'{self.name}({left_expr}, {right_expr})'
+            else:
+                return f'({left_expr}) {self.name} ({right_expr})'
         elif self.arity == 1:
-            left_expr = self.left.expr(constants)
+            left_expr = self.left.expr(constants, infix)
             return f'{self.name}({left_expr})'
         elif self.name == 'c':
             if constants is not None:
@@ -128,7 +133,8 @@ class ExpressionTree(nn.Module):
         return self.root.eval(X, self.constants)
 
     def __str__(self):
-        return self.root.expr(self.constants)
+        print(self.root.expr(self.constants, infix=False))
+        return str(simplify(self.root.expr(self.constants, infix=False)))
 
 
 class ETEnsemble(nn.Module):
