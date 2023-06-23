@@ -19,8 +19,14 @@ def trajectory_balance_loss(total_flow, rewards, fwd_probs):
         
         back_probs: The backward probabilities associated with each trajectory
     """
+    # for some reason, the fwd_probs might contain zero, we then discard any
+    # sample with such fwd_prob
     lhs = total_flow * torch.prod(fwd_probs, dim=1)
     # rhs = rewards * torch.prod(back_probs, dim=1)
     loss = torch.log(lhs / rewards)**2
-    assert not torch.isfinite(loss).all()
-    return loss.mean()
+    if not torch.isfinite(loss).all():
+        s = (torch.prod(fwd_probs, dim=1) == 0).sum()
+        print(s)
+        print(loss[lhs != 0].mean())
+    # return loss[lhs != 0].mean()
+    return loss[lhs != 0].mean()

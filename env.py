@@ -38,18 +38,14 @@ class SRTree(Env):
         self.X, self.y = X, y
 
     def get_initial_states(self, batch_size=16):
-        init_states = -1 * torch.ones((batch_size, self.state_dim)).long()
+        init_states = -1 * torch.ones((batch_size, self.state_dim), dtype=torch.long)
         init_states[:, 0] = self.placeholder
         return init_states
 
     def update(self, encodings: torch.Tensor, actions: torch.Tensor):
-        encodings = encodings.clone()
-        placeholder_mask = (encodings == self.placeholder).int()
-        row_has_element = placeholder_mask.any(dim=1)
-        indices = placeholder_mask.argmax(dim=1)[row_has_element]
-        actions = actions[row_has_element]
-        new_encodings = encodings[row_has_element]
-        new_encodings[torch.arange(len(new_encodings)), indices] = actions
+        new_encodings = encodings.clone()
+        indices = (new_encodings == self.placeholder).long().argmax(axis=1)
+        new_encodings[torch.arange(len(encodings)), indices] = actions
         # setting new children locations to be placeholder
         new_action_arities = self.action_arities[actions]
         left_idx = indices * 2 + 1
@@ -60,8 +56,7 @@ class SRTree(Env):
         is_binary = new_action_arities == 2
         new_encodings[is_binary, left_idx[is_binary]] = self.placeholder
         new_encodings[is_binary, right_idx[is_binary]] = self.placeholder
-        encodings[row_has_element] = new_encodings
-        return encodings
+        return new_encodings
 
     def mask(self, encodings: torch.Tensor):
         M = len(encodings)

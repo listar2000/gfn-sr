@@ -70,17 +70,17 @@ class GFlowNet(nn.Module):
         done = torch.BoolTensor([False] * len(s))
         log = Log(s0, self.backward_policy, self.total_flow, self.env) if return_log else None
         while not done.all():
-            probs, done_idx = self.forward_probs(s)
-            probs, done_idx = probs[~done], done_idx[~done]
-            actions = Categorical(probs).sample()
             old_done = done.clone()
+            probs, done = self.forward_probs(s)
+            probs = probs[~old_done]
+            actions = Categorical(probs).sample()
+            terminated = done[~old_done]
             # terminated = actions == probs.shape[-1] - 1
-            done[~done] = done_idx
-            s[~done] = self.env.update(s[~done], actions[~done_idx])
-
+            s[~done] = self.env.update(s[~done], actions[~terminated])
+            # print(old_done.shape, probs.shape, done.shape, actions.shape, done_idx.shape)
             if return_log:
                 log.log(s, probs, actions, old_done)
-
+            # print(s, done, actions)
         return (s, log) if return_log else s
     
     def evaluate_trajectories(self, traj, actions):

@@ -34,7 +34,7 @@ def train_gfn_sr(batch_size, num_epochs, show_plot=False, use_gpu=True):
     action = Action(X.shape[1])
     env = SRTree(X, y, action_space=action, max_depth=2, loss="other")
 
-    forward_policy = RNNForwardPolicy(batch_size, 250, env.num_actions, 2, model="lstm", device=device)
+    forward_policy = RNNForwardPolicy(batch_size, 250, env.num_actions, 1, model="lstm", device=device)
     backward_policy = CanonicalBackwardPolicy(env.num_actions)
     model = GFlowNet(forward_policy, backward_policy, env)
     params = [param for param in model.parameters() if param.requires_grad]
@@ -81,7 +81,7 @@ def run_torch_profile(prof_batch=32, prof_epochs=3, use_gpu=False):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--batch_size", type=int, default=32)
+    parser.add_argument("--batch_size", type=int, default=512)
     parser.add_argument("--num_epochs", type=int, default=5000)
 
     args = parser.parse_args()
