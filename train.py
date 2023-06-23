@@ -25,39 +25,38 @@ def train_plot(errs, flows):
 
 
 def train_gfn_sr(batch_size, num_epochs, show_plot=False, use_gpu=True):
-    torch.manual_seed(1234)
+    torch.manual_seed(2222)
     device = torch.device("cuda") if use_gpu and torch.cuda.is_available() else torch.device("cpu")
     print("training started with device", device)
     X = torch.empty(200, 1).uniform_(0, 1) * 5
-    y = X[:, 0] + 3
+    # y = X[:, 0] + 3
+    y = X[:, 0] * 2
     action = Action(X.shape[1])
-    env = SRTree(X, y, action_space=action, max_depth=3, loss="other")
+    env = SRTree(X, y, action_space=action, max_depth=2, loss="other")
 
     forward_policy = RNNForwardPolicy(batch_size, 250, env.num_actions, 2, model="lstm", device=device)
     backward_policy = CanonicalBackwardPolicy(env.num_actions)
     model = GFlowNet(forward_policy, backward_policy, env)
     params = [param for param in model.parameters() if param.requires_grad]
-    opt = torch.optim.Adam(params, lr=1e-3)
+    opt = torch.optim.Adam(params, lr=1e-2)
 
-    flows, errs = [], []
+    flows, errs, avg_rewards = [], [], []
 
     for i in (p := tqdm(range(num_epochs))):
         s0 = env.get_initial_states(batch_size)
         s, log = model.sample_states(s0, return_log=True)
-        if not torch.isfinite(log.rewards).all():
-            print(log.rewards)
-            assert False
         loss = trajectory_balance_loss(log.total_flow,
                                        log.rewards,
-                                       log.fwd_probs,
-                                       log.back_probs)
+                                       log.fwd_probs)
         loss.backward()
         opt.step()
         opt.zero_grad()
         if i % 10 == 0:
+            avg_reward = log.rewards.mean().item()
             p.set_description(f"{loss.item():.3f}")
             flows.append(log.total_flow.item())
             errs.append(loss.item())
+            avg_rewards.append(avg_reward)
 
     # codes for plotting loss & rewards
     if show_plot:
@@ -83,11 +82,10 @@ def run_torch_profile(prof_batch=32, prof_epochs=3, use_gpu=False):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--batch_size", type=int, default=32)
-    parser.add_argument("--num_epochs", type=int, default=100)
+    parser.add_argument("--num_epochs", type=int, default=5000)
 
     args = parser.parse_args()
     batch_size = args.batch_size
     num_epochs = args.num_epochs
 
-    # model, env, errs = train_gfn_sr(batch_size, num_epochs, show_plot=False, use_gpu=True)
-    run_torch_profile()
+    model, env, errs = train_gfn_sr(batch_size, num_epochs, show_plot=True, use_gpu=True)

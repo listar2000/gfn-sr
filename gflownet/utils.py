@@ -1,6 +1,7 @@
 import torch
 
-def trajectory_balance_loss(total_flow, rewards, fwd_probs, back_probs):
+
+def trajectory_balance_loss(total_flow, rewards, fwd_probs):
     """
     Computes the mean trajectory balance loss for a collection of samples. For
     more information, see Bengio et al. (2022): https://arxiv.org/abs/2201.13259
@@ -19,6 +20,7 @@ def trajectory_balance_loss(total_flow, rewards, fwd_probs, back_probs):
         back_probs: The backward probabilities associated with each trajectory
     """
     lhs = total_flow * torch.prod(fwd_probs, dim=1)
-    rhs = rewards * torch.prod(back_probs, dim=1)
-    loss = torch.log(lhs / rhs)**2
+    # rhs = rewards * torch.prod(back_probs, dim=1)
+    loss = torch.log(lhs / rewards)**2
+    assert not torch.isfinite(loss).all()
     return loss.mean()

@@ -40,9 +40,10 @@ class GFlowNet(nn.Module):
             probs: An NxA matrix of action probabilities
         """
         # 1e-8 for smoothing and avoiding division by zero
-        probs = self.env.mask(s) * (probs + 1e-8)
+        mask, done_idx = self.env.mask(s)
+        probs = mask * (probs + 1e-8)
         probs = probs / probs.sum(1).unsqueeze(1)
-        return probs
+        return probs, done_idx
     
     def forward_probs(self, s):
         """
@@ -52,16 +53,7 @@ class GFlowNet(nn.Module):
             s: An NxD matrix representing N states
         """
         probs = self.forward_policy(s)
-        if not torch.isfinite(probs).all():
-            if torch.isnan(probs).all():
-                print("----- debugging ------")
-                for param in self.forward_policy.rnn.parameters():
-                    print(param)
-                assert False
-            probs[torch.isnan(probs)] = 0.0
-            print("warning: na in forward probs occurs")
-        probs = self.mask_and_normalize(s, probs)
-        return probs
+        return self.mask_and_normalize(s, probs)
     
     def sample_states(self, s0, return_log=False):
         """
@@ -77,17 +69,18 @@ class GFlowNet(nn.Module):
         s = s0.clone()
         done = torch.BoolTensor([False] * len(s))
         log = Log(s0, self.backward_policy, self.total_flow, self.env) if return_log else None
-
         while not done.all():
-            probs = self.forward_probs(s)[~done]
+            probs, done_idx = self.forward_probs(s)
+            probs, done_idx = probs[~done], done_idx[~done]
             actions = Categorical(probs).sample()
-            terminated = actions == probs.shape[-1] - 1
             old_done = done.clone()
-            done[~done] = terminated
-            s[~done] = self.env.update(s[~done], actions[~terminated])
+            # terminated = actions == probs.shape[-1] - 1
+            done[~done] = done_idx
+            s[~done] = self.env.update(s[~done], actions[~done_idx])
+
             if return_log:
                 log.log(s, probs, actions, old_done)
-        
+
         return (s, log) if return_log else s
     
     def evaluate_trajectories(self, traj, actions):

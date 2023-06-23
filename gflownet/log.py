@@ -95,7 +95,7 @@ class Log:
         
         terminated = (actions == -1) | (actions == self.env.num_actions - 1)
         zero_to_n = torch.arange(len(terminated))
-        back_probs = self.backward_policy(s) * self.env.mask(prev_s)
+        back_probs = self.backward_policy(s) * self.env.mask(prev_s)[0]
         back_probs = torch.where(terminated, 1, back_probs[zero_to_n, actions])
         self._back_probs = back_probs.reshape(self.num_samples, -1)
         

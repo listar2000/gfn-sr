@@ -43,9 +43,13 @@ class SRTree(Env):
         return init_states
 
     def update(self, encodings: torch.Tensor, actions: torch.Tensor):
-        new_encodings = encodings.clone()
-        indices = (new_encodings == self.placeholder).long().argmax(axis=1)
-        new_encodings[torch.arange(len(encodings)), indices] = actions
+        encodings = encodings.clone()
+        placeholder_mask = (encodings == self.placeholder).int()
+        row_has_element = placeholder_mask.any(dim=1)
+        indices = placeholder_mask.argmax(dim=1)[row_has_element]
+        actions = actions[row_has_element]
+        new_encodings = encodings[row_has_element]
+        new_encodings[torch.arange(len(new_encodings)), indices] = actions
         # setting new children locations to be placeholder
         new_action_arities = self.action_arities[actions]
         left_idx = indices * 2 + 1
@@ -56,14 +60,15 @@ class SRTree(Env):
         is_binary = new_action_arities == 2
         new_encodings[is_binary, left_idx[is_binary]] = self.placeholder
         new_encodings[is_binary, right_idx[is_binary]] = self.placeholder
-        return new_encodings
+        encodings[row_has_element] = new_encodings
+        return encodings
 
     def mask(self, encodings: torch.Tensor):
         M = len(encodings)
         ecd_mask = (encodings == self.placeholder)
         indices = ecd_mask.long().argmax(axis=1)
         # identify complete trees
-        done_idx = (ecd_mask.sum(axis=1) == 0)
+        done_idx = ~ecd_mask.any(axis=1)
 
         mask = torch.zeros((M, self.num_actions))
         mask[done_idx, -1] = 1
@@ -84,7 +89,7 @@ class SRTree(Env):
         left_constant_idx = encodings[has_left_sib, indices[has_left_sib] - 1] == 0
         sub_mask[left_constant_idx, 0] = 0
         mask[has_left_sib, :] = sub_mask
-        return mask
+        return mask, done_idx
 
     def reward(self, encodings):
         """
@@ -92,6 +97,7 @@ class SRTree(Env):
         """
         N = len(encodings)
         loss = torch.zeros(N)
+        return torch.ones(N)
         expressions = []
         for i in range(N):
             expression = ExpressionTree(encodings[i], self.action_fns, self.action_arities, self.action_names)
@@ -117,7 +123,7 @@ class SRTree(Env):
         else:
             # TODO: alpha1 * fitting loss + alpha2 * structure loss
             max_mse = ((self.y - self.y.mean()) ** 2).mean()
-            rewards = torch.clamp(100 * (1.0 - loss / max_mse), min=0.01)
+            rewards = torch.clamp(1.0 - loss / max_mse, min=0.01)
 
         if len(rewards) > 1 and torch.max(rewards) > self.best_reward:
             best_reward_vanilla = torch.max(rewards)
