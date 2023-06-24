@@ -25,7 +25,7 @@ def train_plot(errs, flows):
 
 
 def train_gfn_sr(batch_size, num_epochs, show_plot=False, use_gpu=True):
-    torch.manual_seed(2222)
+    torch.manual_seed(1234)
     device = torch.device("cuda") if use_gpu and torch.cuda.is_available() else torch.device("cpu")
     print("training started with device", device)
     X = torch.empty(200, 1).uniform_(0, 1) * 5
@@ -44,13 +44,14 @@ def train_gfn_sr(batch_size, num_epochs, show_plot=False, use_gpu=True):
 
     for i in (p := tqdm(range(num_epochs))):
         s0 = env.get_initial_states(batch_size)
-        s, log = model.sample_states(s0, return_log=True)
+        s, log = model.sample_states(s0)
         loss = trajectory_balance_loss(log.total_flow,
                                        log.rewards,
                                        log.fwd_probs)
         loss.backward()
         opt.step()
         opt.zero_grad()
+
         if i % 10 == 0:
             avg_reward = log.rewards.mean().item()
             p.set_description(f"{loss.item():.3f}")
@@ -81,8 +82,8 @@ def run_torch_profile(prof_batch=32, prof_epochs=3, use_gpu=False):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--batch_size", type=int, default=512)
-    parser.add_argument("--num_epochs", type=int, default=5000)
+    parser.add_argument("--batch_size", type=int, default=4)
+    parser.add_argument("--num_epochs", type=int, default=1)
 
     args = parser.parse_args()
     batch_size = args.batch_size

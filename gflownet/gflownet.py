@@ -55,33 +55,39 @@ class GFlowNet(nn.Module):
         probs = self.forward_policy(s)
         return self.mask_and_normalize(s, probs)
     
-    def sample_states(self, s0, return_log=False):
+    def sample_states(self, s0):
         """
         Samples and returns a collection of final states from the GFlowNet.
         
         Args:
             s0: An NxD matrix of initial states
-            
-            return_log: Return an object containing information about the
-            sampling process (e.g. the trajectory of each sample, the forward
-            and backward probabilities, the actions taken, etc.)
         """
-        s = s0.clone()
-        done = torch.BoolTensor([False] * len(s))
-        log = Log(s0, self.backward_policy, self.total_flow, self.env) if return_log else None
+        s, n = s0.clone(), len(s0)
+        done = torch.zeros(n, dtype=torch.bool)
+
+        _traj, _fwd_probs = [s0.view(n, 1, -1)], []
         while not done.all():
-            old_done = done.clone()
             probs, done = self.forward_probs(s)
-            probs = probs[~old_done]
+            probs = probs[~done]
             actions = Categorical(probs).sample()
-            terminated = done[~old_done]
-            # terminated = actions == probs.shape[-1] - 1
-            s[~done] = self.env.update(s[~done], actions[~terminated])
-            # print(old_done.shape, probs.shape, done.shape, actions.shape, done_idx.shape)
-            if return_log:
-                log.log(s, probs, actions, old_done)
-            # print(s, done, actions)
-        return (s, log) if return_log else s
+            state, update_success = self.env.update(s[~done], actions)
+            all_success = update_success.all()
+
+            fwd_probs = torch.ones(n, 1)
+            if all_success:
+                s[~done] = state
+                fwd_probs[~done] = probs.gather(1, actions.unsqueeze(1))
+            else:
+                s[~done][update_success] = state[update_success]
+                fwd_probs[~done][update_success] = probs.gather(1, actions.unsqueeze(1))[update_success]
+
+            # logging necessary information
+            _traj.append(s.clone().view(n, 1, -1))
+            _fwd_probs.append(fwd_probs)
+
+        _rewards = self.env.reward(s)
+        log = Log(_traj, _fwd_probs, _rewards, self.total_flow)
+        return s, log
     
     def evaluate_trajectories(self, traj, actions):
         """
