@@ -1,5 +1,6 @@
 from gflownet.env import Env
 from actions import Action, ExpressionTree, optimize_constant, ETEnsemble
+from gflownet.utils import RewardBuffer
 import torch.nn as nn
 import torch
 
@@ -32,40 +33,56 @@ class SRTree(Env):
         self.inner_eval_config = inner_loop_config.copy()
         self.inner_eval_config.update({'iteration': 100, 'optim': 'lbfgs'})
 
+        self.reward_buffer = RewardBuffer()
         self.best_reward = -torch.inf
         self.best_expr = None
 
         self.X, self.y = X, y
 
     def get_initial_states(self, batch_size=16):
-        init_states = -1 * torch.ones((batch_size, self.state_dim)).long()
+        init_states = -1 * torch.ones((batch_size, self.state_dim), dtype=torch.long)
         init_states[:, 0] = self.placeholder
         return init_states
 
     def update(self, encodings: torch.Tensor, actions: torch.Tensor):
         new_encodings = encodings.clone()
-        indices = (new_encodings == self.placeholder).long().argmax(axis=1)
+        n, m = encodings.shape
+        update_success = torch.zeros(n, dtype=torch.bool)
+        ind_mask = (new_encodings == self.placeholder).long()
+        indices = ind_mask.argmax(axis=1)
         new_encodings[torch.arange(len(encodings)), indices] = actions
         # setting new children locations to be placeholder
         new_action_arities = self.action_arities[actions]
         left_idx = indices * 2 + 1
         right_idx = left_idx + 1
+        # updates of constants/features is always successful
+        update_success[new_action_arities == 0] = True
 
         is_unary = new_action_arities == 1
+        unary_success = (left_idx[is_unary] < m) & (new_encodings[is_unary, left_idx[is_unary]] == -1)
+        is_unary[is_unary.clone()] = unary_success
+        update_success[is_unary] = True
         new_encodings[is_unary, left_idx[is_unary]] = self.placeholder
+
         is_binary = new_action_arities == 2
+        binary_success = (right_idx[is_binary] < m) & (new_encodings[is_binary, left_idx[is_binary]] == -1) \
+            & (new_encodings[is_binary, right_idx[is_binary]] == -1)
+        is_binary[is_binary.clone()] = binary_success
+        update_success[is_binary] = True
         new_encodings[is_binary, left_idx[is_binary]] = self.placeholder
         new_encodings[is_binary, right_idx[is_binary]] = self.placeholder
-        return new_encodings
+
+        new_encodings[update_success, indices[update_success]] = actions[update_success]
+        return new_encodings, update_success
 
     def mask(self, encodings: torch.Tensor):
-        M = len(encodings)
+        n = len(encodings)
         ecd_mask = (encodings == self.placeholder)
         indices = ecd_mask.long().argmax(axis=1)
         # identify complete trees
-        done_idx = (ecd_mask.sum(axis=1) == 0)
+        done_idx = ~ecd_mask.any(axis=1)
 
-        mask = torch.zeros((M, self.num_actions))
+        mask = torch.zeros((n, self.num_actions))
         mask[done_idx, -1] = 1
         mask[~done_idx, :-1] = 1
 
@@ -76,7 +93,7 @@ class SRTree(Env):
         # RULE 2: check whether the parent is unary, in which case we disallow constant
         par_idx = torch.div(indices - 1, 2, rounding_mode='floor').clamp(min=0)
         min_action_idx = self.action_space.feat_num + self.action_space.op_num
-        is_par_unary = encodings[torch.arange(M), par_idx] < min_action_idx
+        is_par_unary = encodings[torch.arange(n), par_idx] < min_action_idx
         mask[is_par_unary, 0] = 0
         # RULE 3: left sibling cannot be constant already
         has_left_sib = (indices % 2 == 0) & (indices > 0)
@@ -84,32 +101,40 @@ class SRTree(Env):
         left_constant_idx = encodings[has_left_sib, indices[has_left_sib] - 1] == 0
         sub_mask[left_constant_idx, 0] = 0
         mask[has_left_sib, :] = sub_mask
-        return mask
+        return mask, done_idx
 
     def reward(self, encodings):
         """
         ! we assume that `encodings` here are valid (complete) trees
         """
-        N = len(encodings)
-        loss = torch.zeros(N)
+        n = len(encodings)
+        loss = torch.zeros(n)
+        cache_miss = []
         expressions = []
-        for i in range(N):
-            expression = ExpressionTree(encodings[i], self.action_fns, self.action_arities, self.action_names)
-            expressions.append(expression)
+        for i in range(n):
+            cache_loss = self.reward_buffer.get(encodings[i])
+            if cache_loss is None:
+                cache_miss.append(i)
+                expression = ExpressionTree(encodings[i], self.action_fns, self.action_arities, self.action_names)
+                expressions.append(expression)
+            else:
+                loss[i] = cache_loss
 
         # perform inner optimization
         ensemble = ETEnsemble(expressions)
         optimize_constant(ensemble, self.X, self.y, self.inner_loop_config)
 
-        # compute final rewards/loss
-        for i in range(N):
-            with torch.no_grad():
+        # compute final rewards/loss for expressions not cached
+        with torch.no_grad():
+            for i, miss_idx in enumerate(cache_miss):
                 criterion = nn.MSELoss()
                 final_reward = criterion(expressions[i](self.X), self.y)
-                if torch.isnan(final_reward) or torch.isinf(final_reward):
-                    loss[i] = torch.inf
+                if not torch.isfinite(final_reward):
+                    loss[miss_idx] = torch.inf
                 else:
-                    loss[i] = final_reward
+                    loss[miss_idx] = final_reward
+                has_constant = len(expressions[i].constants) > 0
+                self.reward_buffer.set(encodings[miss_idx], has_constant, loss[miss_idx])
 
         if self.loss == "nrmse":
             nrmse = torch.sqrt(loss) / torch.std(self.y)
@@ -117,7 +142,7 @@ class SRTree(Env):
         else:
             # TODO: alpha1 * fitting loss + alpha2 * structure loss
             max_mse = ((self.y - self.y.mean()) ** 2).mean()
-            rewards = torch.clamp(100 * (1.0 - loss / max_mse), min=0.01)
+            rewards = torch.clamp(1.0 - loss / max_mse, min=0.01)
 
         if len(rewards) > 1 and torch.max(rewards) > self.best_reward:
             best_reward_vanilla = torch.max(rewards)
@@ -125,9 +150,9 @@ class SRTree(Env):
             best_expr = expressions[best_action]
             optimize_constant(best_expr, self.X, self.y, self.inner_eval_config)
             loss_optmized = criterion(best_expr(self.X), self.y)
-            print(f"\nnew best reward (vanilla): { best_reward_vanilla }")
-            print(f"mse (pre/post optimized): { loss[best_action] }/{ loss_optmized }")
-            print(f"expr: { str(best_expr) }")
+            print(f"\nnew best reward (vanilla): {best_reward_vanilla}")
+            print(f"mse (pre/post optimized): {loss[best_action]}/{loss_optmized}")
+            print(f"expr: {str(best_expr)}")
             self.best_reward = best_reward_vanilla
             self.best_expr = best_expr
         return rewards

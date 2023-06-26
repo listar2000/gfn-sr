@@ -40,9 +40,10 @@ class GFlowNet(nn.Module):
             probs: An NxA matrix of action probabilities
         """
         # 1e-8 for smoothing and avoiding division by zero
-        probs = self.env.mask(s) * (probs + 1e-8)
+        mask, done_idx = self.env.mask(s)
+        probs = mask * (probs + 1e-8)
         probs = probs / probs.sum(1).unsqueeze(1)
-        return probs
+        return probs, done_idx
     
     def forward_probs(self, s):
         """
@@ -52,43 +53,41 @@ class GFlowNet(nn.Module):
             s: An NxD matrix representing N states
         """
         probs = self.forward_policy(s)
-        if not torch.isfinite(probs).all():
-            if torch.isnan(probs).all():
-                print("----- debugging ------")
-                for param in self.forward_policy.rnn.parameters():
-                    print(param)
-                assert False
-            probs[torch.isnan(probs)] = 0.0
-            print("warning: na in forward probs occurs")
-        probs = self.mask_and_normalize(s, probs)
-        return probs
+        return self.mask_and_normalize(s, probs)
     
-    def sample_states(self, s0, return_log=False):
+    def sample_states(self, s0):
         """
         Samples and returns a collection of final states from the GFlowNet.
         
         Args:
             s0: An NxD matrix of initial states
-            
-            return_log: Return an object containing information about the
-            sampling process (e.g. the trajectory of each sample, the forward
-            and backward probabilities, the actions taken, etc.)
         """
-        s = s0.clone()
-        done = torch.BoolTensor([False] * len(s))
-        log = Log(s0, self.backward_policy, self.total_flow, self.env) if return_log else None
+        s, n = s0.clone(), len(s0)
+        done = torch.zeros(n, dtype=torch.bool)
 
+        _traj, _fwd_probs = [s0.view(n, 1, -1)], []
         while not done.all():
-            probs = self.forward_probs(s)[~done]
+            probs, done = self.forward_probs(s)
+            probs = probs[~done]
             actions = Categorical(probs).sample()
-            terminated = actions == probs.shape[-1] - 1
-            old_done = done.clone()
-            done[~done] = terminated
-            s[~done] = self.env.update(s[~done], actions[~terminated])
-            if return_log:
-                log.log(s, probs, actions, old_done)
-        
-        return (s, log) if return_log else s
+            state, update_success = self.env.update(s[~done], actions)
+            all_success = update_success.all()
+
+            fwd_probs = torch.ones(n, 1)
+            if all_success:
+                s[~done] = state
+                fwd_probs[~done] = probs.gather(1, actions.unsqueeze(1))
+            else:
+                s[~done][update_success] = state[update_success]
+                fwd_probs[~done][update_success] = probs.gather(1, actions.unsqueeze(1))[update_success]
+
+            # logging necessary information
+            _traj.append(s.clone().view(n, 1, -1))
+            _fwd_probs.append(fwd_probs)
+
+        _rewards = self.env.reward(s)
+        log = Log(_traj, _fwd_probs, _rewards, self.total_flow)
+        return s, log
     
     def evaluate_trajectories(self, traj, actions):
         """
