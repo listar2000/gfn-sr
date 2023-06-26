@@ -1,5 +1,6 @@
 from gflownet.env import Env
 from actions import Action, ExpressionTree, optimize_constant, ETEnsemble
+from gflownet.utils import RewardBuffer
 import torch.nn as nn
 import torch
 
@@ -32,6 +33,7 @@ class SRTree(Env):
         self.inner_eval_config = inner_loop_config.copy()
         self.inner_eval_config.update({'iteration': 100, 'optim': 'lbfgs'})
 
+        self.reward_buffer = RewardBuffer()
         self.best_reward = -torch.inf
         self.best_expr = None
 
@@ -47,7 +49,6 @@ class SRTree(Env):
         n, m = encodings.shape
         update_success = torch.zeros(n, dtype=torch.bool)
         ind_mask = (new_encodings == self.placeholder).long()
-        assert (ind_mask.sum(axis=1) > 0).all(), encodings
         indices = ind_mask.argmax(axis=1)
         new_encodings[torch.arange(len(encodings)), indices] = actions
         # setting new children locations to be placeholder
@@ -64,7 +65,7 @@ class SRTree(Env):
         new_encodings[is_unary, left_idx[is_unary]] = self.placeholder
 
         is_binary = new_action_arities == 2
-        binary_success = (right_idx[is_unary] < m) & (new_encodings[is_binary, left_idx[is_binary]] == -1) \
+        binary_success = (right_idx[is_binary] < m) & (new_encodings[is_binary, left_idx[is_binary]] == -1) \
             & (new_encodings[is_binary, right_idx[is_binary]] == -1)
         is_binary[is_binary.clone()] = binary_success
         update_success[is_binary] = True
@@ -106,27 +107,34 @@ class SRTree(Env):
         """
         ! we assume that `encodings` here are valid (complete) trees
         """
-        N = len(encodings)
-        loss = torch.zeros(N)
-        return torch.ones(N)
+        n = len(encodings)
+        loss = torch.zeros(n)
+        cache_miss = []
         expressions = []
-        for i in range(N):
-            expression = ExpressionTree(encodings[i], self.action_fns, self.action_arities, self.action_names)
-            expressions.append(expression)
+        for i in range(n):
+            cache_loss = self.reward_buffer.get(encodings[i])
+            if cache_loss is None:
+                cache_miss.append(i)
+                expression = ExpressionTree(encodings[i], self.action_fns, self.action_arities, self.action_names)
+                expressions.append(expression)
+            else:
+                loss[i] = cache_loss
 
         # perform inner optimization
         ensemble = ETEnsemble(expressions)
         optimize_constant(ensemble, self.X, self.y, self.inner_loop_config)
 
-        # compute final rewards/loss
-        for i in range(N):
-            with torch.no_grad():
+        # compute final rewards/loss for expressions not cached
+        with torch.no_grad():
+            for i, miss_idx in enumerate(cache_miss):
                 criterion = nn.MSELoss()
                 final_reward = criterion(expressions[i](self.X), self.y)
-                if torch.isnan(final_reward) or torch.isinf(final_reward):
-                    loss[i] = torch.inf
+                if not torch.isfinite(final_reward):
+                    loss[miss_idx] = torch.inf
                 else:
-                    loss[i] = final_reward
+                    loss[miss_idx] = final_reward
+                has_constant = len(expressions[i].constants) > 0
+                self.reward_buffer.set(encodings[miss_idx], has_constant, loss[miss_idx])
 
         if self.loss == "nrmse":
             nrmse = torch.sqrt(loss) / torch.std(self.y)

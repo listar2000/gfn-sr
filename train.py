@@ -82,8 +82,8 @@ def run_torch_profile(prof_batch=32, prof_epochs=3, use_gpu=False):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--batch_size", type=int, default=4)
-    parser.add_argument("--num_epochs", type=int, default=1)
+    parser.add_argument("--batch_size", type=int, default=64)
+    parser.add_argument("--num_epochs", type=int, default=5000)
 
     args = parser.parse_args()
     batch_size = args.batch_size
