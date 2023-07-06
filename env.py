@@ -3,6 +3,7 @@ from actions import Action, ExpressionTree, optimize_constant, ETEnsemble
 from gflownet.utils import RewardBuffer
 import torch.nn as nn
 import torch
+import logging
 
 from sympy import *
 
@@ -42,15 +43,19 @@ class SRTree(Env):
     def get_initial_states(self, batch_size=16):
         init_states = -1 * torch.ones((batch_size, self.state_dim), dtype=torch.long)
         init_states[:, 0] = self.placeholder
-        return init_states
+        init_pref = torch.zeros((batch_size, self.state_dim), dtype=torch.long)
+        return init_states, init_pref
 
-    def update(self, encodings: torch.Tensor, actions: torch.Tensor):
+    def update(self, encodings: torch.Tensor, prefix: torch.Tensor, actions: torch.Tensor):
         new_encodings = encodings.clone()
+        new_prefix =  prefix.clone()
         n, m = encodings.shape
         update_success = torch.zeros(n, dtype=torch.bool)
         ind_mask = (new_encodings == self.placeholder).long()
         indices = ind_mask.argmax(axis=1)
         new_encodings[torch.arange(len(encodings)), indices] = actions
+        pref_indices = np.argmax(prefix == 0)
+        pref_encodings[torch.arange(len(encodings)), pref_indices] = actions
         # setting new children locations to be placeholder
         new_action_arities = self.action_arities[actions]
         left_idx = indices * 2 + 1
@@ -150,9 +155,9 @@ class SRTree(Env):
             best_expr = expressions[best_action]
             optimize_constant(best_expr, self.X, self.y, self.inner_eval_config)
             loss_optmized = criterion(best_expr(self.X), self.y)
-            print(f"\nnew best reward (vanilla): {best_reward_vanilla}")
-            print(f"mse (pre/post optimized): {loss[best_action]}/{loss_optmized}")
-            print(f"expr: {str(best_expr)}")
+            print(f"\nnew best reward (vanilla): {best_reward_vanilla}", flush=True)
+            print(f"mse (pre/post optimized): {loss[best_action]}/{loss_optmized}", flush=True)
+            print(f"expr: {str(best_expr)}", flush=True)
             self.best_reward = best_reward_vanilla
             self.best_expr = best_expr
         return rewards

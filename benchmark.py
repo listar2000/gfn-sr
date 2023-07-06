@@ -6,7 +6,7 @@ from tqdm import tqdm
 from actions import Action
 from env import SRTree
 from gflownet import trajectory_balance_loss, GFlowNet
-from policy import RNNForwardPolicy, CanonicalBackwardPolicy, TransformerForwardPolicy
+from policy import RNNForwardPolicy, CanonicalBackwardPolicy, TransformerForwardPolicyVanilla, TransformerEquationPredictor
 
 SEED = 2023
 
@@ -105,22 +105,22 @@ if __name__ == "__main__":
 
         action = Action(xs.shape[1])
         env = SRTree(xs, ys, action_space=action, max_depth=depth, loss="other")
-        forward_policy = TransformerForwardPolicy(batch_size, 500, 1000, env.num_actions, num_layers=4)
+        forward_policy = TransformerEquationPredictor(500, 100, env.num_actions, num_layers=4, num_heads=4, dropout=0.1)
+        # forward_policy = TransformerForwardPolicyVanilla(batch_size, 500, 1000, env.num_actions, num_layers=4)
         # forward_policy = RNNForwardPolicy(batch_size, 500, env.num_actions, num_layers=1, model='lstm')
         backward_policy = CanonicalBackwardPolicy(env.num_actions)
         model = GFlowNet(forward_policy, backward_policy, env)
         opt = torch.optim.Adam(model.parameters(), lr=1e-3)
 
         for i in (p := tqdm(range(num_epochs))):
-            s0 = env.get_initial_states(batch_size)
-            s, log = model.sample_states(s0, return_log=True)
+            s0, p0 = env.get_initial_states(batch_size)
+            s, prefix, log = model.sample_states(s0, p0)
             if not torch.isfinite(log.rewards).all():
                 print(log.rewards)
                 assert False
             loss = trajectory_balance_loss(log.total_flow,
                                            log.rewards,
-                                           log.fwd_probs,
-                                           log.back_probs)
+                                           log.fwd_probs)
             loss.backward()
             opt.step()
             opt.zero_grad()

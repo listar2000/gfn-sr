@@ -5,11 +5,10 @@ from torch import nn
 
 from sympy import *
 
-
 class Action:
     OPERATORS = {
-        'square': torch.square,
-        'sqrt': torch.sqrt,
+        # 'square': torch.square,
+        # 'sqrt': torch.sqrt,
         'log': torch.log,
         'cos': torch.cos,
         'sin': torch.sin,
@@ -20,7 +19,8 @@ class Action:
         '*': torch.mul,
         '+': torch.add,
         '/': torch.div,
-        '-': torch.sub
+        '-': torch.sub,
+        '^': torch.pow
     }
 
     def __init__(self, num_features: int):
@@ -29,7 +29,7 @@ class Action:
 
         self.actions_dict = {"c": None}  # constant symbol
         self.actions_dict.update({
-            **{f'x{idx + 1}': idx for idx in range(num_features)},  # features
+            **{f'x_{idx + 1}': idx for idx in range(num_features)},  # features
             **Action.OPERATORS,  # operators
             **Action.FUNCTIONS,  # functions
         })
@@ -75,16 +75,16 @@ class ActionNode(object):
         else:
             raise RuntimeError("adding more than 2 children")
 
-    def expr(self, constants=None, infix=True):
+    def expr(self, constants=None, prefix=True):
         if self.arity == 2:
-            left_expr, right_expr = self.left.expr(constants, infix), self.right.expr(constants, infix)
-            if infix:
-                return f'{self.name}({left_expr}, {right_expr})'
+            left_expr, right_expr = self.left.expr(constants, prefix), self.right.expr(constants, prefix)
+            if prefix:
+                return f'{self.name} {left_expr} {right_expr}'
             else:
                 return f'({left_expr}) {self.name} ({right_expr})'
         elif self.arity == 1:
-            left_expr = self.left.expr(constants, infix)
-            return f'{self.name}({left_expr})'
+            left_expr = self.left.expr(constants, prefix)
+            return f'{self.name} {left_expr}'
         elif self.name == 'c':
             if constants is not None:
                 return round(constants[self.c_index].item(), 2)
@@ -133,8 +133,9 @@ class ExpressionTree(nn.Module):
         return self.root.eval(X, self.constants)
 
     def __str__(self):
-        print(self.root.expr(self.constants, infix=False))
-        return str(simplify(self.root.expr(self.constants, infix=False)))
+        print(self.root.expr(self.constants, prefix=True), flush=True)
+        return self.root.expr(self.constants, prefix=False)
+        # return str(simplify(self.root.expr(self.constants, prefix=False)))
 
 
 class ETEnsemble(nn.Module):

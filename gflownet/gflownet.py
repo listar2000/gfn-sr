@@ -41,44 +41,47 @@ class GFlowNet(nn.Module):
         """
         # 1e-8 for smoothing and avoiding division by zero
         mask, done_idx = self.env.mask(s)
-        probs = mask * (probs + 1e-8)
-        probs = probs / probs.sum(1).unsqueeze(1)
-        return probs, done_idx
+        # probs = mask * (probs + 1e-8)
+        # probs = probs / probs.sum(1).unsqueeze(1)
+        # return probs, done_idx
+        return done_idx
     
-    def forward_probs(self, s):
+    def forward_probs(self, s, p):
         """
         Returns a vector of probabilities over actions in a given state.
         
         Args:
             s: An NxD matrix representing N states
         """
-        probs = self.forward_policy(s)
-        return self.mask_and_normalize(s, probs)
+        probs = self.forward_policy(p)
+        return probs, self.mask_and_normalize(s, probs)
     
-    def sample_states(self, s0):
+    def sample_states(self, s0, p0):
         """
         Samples and returns a collection of final states from the GFlowNet.
         
         Args:
             s0: An NxD matrix of initial states
         """
-        s, n = s0.clone(), len(s0)
+        s, p, n = s0.clone(), p0.clone(), len(s0)
         done = torch.zeros(n, dtype=torch.bool)
 
         _traj, _fwd_probs = [s0.view(n, 1, -1)], []
         while not done.all():
-            probs, done = self.forward_probs(s)
+            probs, done = self.forward_probs(s, p)
             probs = probs[~done]
             actions = Categorical(probs).sample()
-            state, update_success = self.env.update(s[~done], actions)
+            state, prefix, update_success = self.env.update(s[~done], p[~done], actions)
             all_success = update_success.all()
 
             fwd_probs = torch.ones(n, 1)
             if all_success:
                 s[~done] = state
+                p[~done] = prefix
                 fwd_probs[~done] = probs.gather(1, actions.unsqueeze(1))
             else:
                 s[~done][update_success] = state[update_success]
+                p[~done][update_success] = prefix[update_success]
                 fwd_probs[~done][update_success] = probs.gather(1, actions.unsqueeze(1))[update_success]
 
             # logging necessary information
@@ -87,7 +90,7 @@ class GFlowNet(nn.Module):
 
         _rewards = self.env.reward(s)
         log = Log(_traj, _fwd_probs, _rewards, self.total_flow)
-        return s, log
+        return s, p, log
     
     def evaluate_trajectories(self, traj, actions):
         """

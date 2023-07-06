@@ -5,12 +5,51 @@ from actions import get_next_node_indices
 
 import torch
 import torch.nn as nn
+import math
 
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model, max_len=1000):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=0.1)
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0).transpose(0, 1)
+        self.register_buffer('pe', pe)
 
-class TransformerForwardPolicy(nn.Module):
+    def forward(self, x):
+        x = x + self.pe[:x.size(0), :]
+        return self.dropout(x)
+
+class TransformerEquationPredictor(nn.Module):
+    def __init__(self, input_size, hidden_size, num_actions, num_layers=4, num_heads=4, dropout=0.1):
+        super(TransformerEquationPredictor, self).__init__()
+        self.embedding = nn.Embedding(input_size, hidden_size)
+        self.positional_encoding = PositionalEncoding(hidden_size)
+        self.transformer = nn.Transformer(d_model=hidden_size, nhead=num_heads, num_encoder_layers=num_layers,
+                                          num_decoder_layers=num_layers, dim_feedforward=hidden_size*4, dropout=dropout)
+        self.fc = nn.Linear(hidden_size, num_actions)
+
+    def forward(self, x):
+        print(x)
+        embedded = self.embedding(x)
+        print(embedded)
+        embedded = self.positional_encoding(embedded)
+        padding_token = 0 # or -1???
+        hidden = self.transformer(embedded, embedded, src_mask=(x != padding_token).unsqueeze(-2))
+        output = self.fc(hidden)
+
+        output = F.softmax(output, dim=2)  # Apply softmax to the output predictions
+        # predicted_token = torch.argmax(output, dim=2)[:, -1]
+
+        return output
+
+class TransformerForwardPolicyVanilla(nn.Module):
     def __init__(self, batch_size, hidden_size, feed_forward_size, num_actions, model='Transformer',
                  num_layers=4, num_heads=4, placeholder=-2, one_hot=True, device=None):
-        super(TransformerForwardPolicy, self).__init__()
+        super(TransformerForwardPolicyVanilla, self).__init__()
 
         self.batch_size = batch_size
         self.hidden_size = hidden_size
@@ -18,7 +57,7 @@ class TransformerForwardPolicy(nn.Module):
         self.num_layers = num_layers
         self.placeholder = placeholder
         self.one_hot = one_hot
-        self.device = torch.device("cpu") if not device else device
+        self.device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
         # if using one_hot, we turn (sibling, parent) to 2 * num_actions + 2 vector
         # where the additional 2 denotes 2 placeholder symbols
