@@ -96,7 +96,7 @@ NGUYEN_TESTS = [
 if __name__ == "__main__":
     batch_size = 32
     num_epochs = 10000
-    json_path = "./benchmark/lstm_5000.json"
+    json_path = "./benchmark/vanilla_transformer_10000.json"
     test_log = []
     for idx, test in enumerate(NGUYEN_TESTS):
         print(f"start benchmarking test {idx}")
