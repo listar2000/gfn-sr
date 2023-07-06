@@ -8,12 +8,12 @@ from sympy import *
 
 class Action:
     OPERATORS = {
+        'square': torch.square,
+        'sqrt': torch.sqrt,
+        'log': torch.log,
         'cos': torch.cos,
         'sin': torch.sin,
         'exp': torch.exp,
-        'square': torch.square,
-        'sqrt': torch.sqrt,
-        'log': torch.log
     }
 
     FUNCTIONS = {
