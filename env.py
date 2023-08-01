@@ -1,10 +1,8 @@
 from gflownet.env import Env
 from actions import Action, ExpressionTree, optimize_constant, ETEnsemble
-from gflownet.utils import RewardBuffer
+from gflownet.utils import LossBuffer
 import torch.nn as nn
 import torch
-
-from sympy import *
 
 
 class SRTree(Env):
@@ -33,11 +31,23 @@ class SRTree(Env):
         self.inner_eval_config = inner_loop_config.copy()
         self.inner_eval_config.update({'iteration': 100, 'optim': 'lbfgs'})
 
-        self.reward_buffer = RewardBuffer()
-        self.best_reward = -torch.inf
-        self.best_expr = None
+        self.loss_buffer = LossBuffer(update_interval=1000)
+        self.criterion = nn.MSELoss()
+        self.reward_manager = None
 
         self.X, self.y = X, y
+
+    def set_up_reward_manager(self):
+        assert self.reward_manager is None
+        from reward import TSSReward, NRMSEReward, DynamicTSSReward, StructureReward
+        if self.loss == 'nrmse':
+            self.reward_manager = NRMSEReward(self, verbose=True)
+        elif self.loss == 'dynamic':
+            self.reward_manager = DynamicTSSReward(self, verbose=True)
+        elif self.loss == 'struct':
+            self.reward_manager = StructureReward(self, verbose=True)
+        else:
+            self.reward_manager = TSSReward(self, verbose=True)
 
     def get_initial_states(self, batch_size=16):
         init_states = -1 * torch.ones((batch_size, self.state_dim), dtype=torch.long)
@@ -59,14 +69,16 @@ class SRTree(Env):
         update_success[new_action_arities == 0] = True
 
         is_unary = new_action_arities == 1
-        unary_success = (left_idx[is_unary] < m) & (new_encodings[is_unary, left_idx[is_unary]] == -1)
+        is_unary[is_unary.clone()] = (left_idx[is_unary] < m)
+        unary_success = (new_encodings[is_unary, left_idx[is_unary]] == -1)
         is_unary[is_unary.clone()] = unary_success
         update_success[is_unary] = True
         new_encodings[is_unary, left_idx[is_unary]] = self.placeholder
 
         is_binary = new_action_arities == 2
-        binary_success = (right_idx[is_binary] < m) & (new_encodings[is_binary, left_idx[is_binary]] == -1) \
-            & (new_encodings[is_binary, right_idx[is_binary]] == -1)
+        is_binary[is_binary.clone()] = (right_idx[is_binary] < m)
+        binary_success = (new_encodings[is_binary, left_idx[is_binary]] == -1) & \
+            (new_encodings[is_binary, right_idx[is_binary]] == -1)
         is_binary[is_binary.clone()] = binary_success
         update_success[is_binary] = True
         new_encodings[is_binary, left_idx[is_binary]] = self.placeholder
@@ -103,7 +115,7 @@ class SRTree(Env):
         mask[has_left_sib, :] = sub_mask
         return mask, done_idx
 
-    def reward(self, encodings):
+    def calc_loss(self, encodings: torch.Tensor):
         """
         ! we assume that `encodings` here are valid (complete) trees
         """
@@ -111,8 +123,9 @@ class SRTree(Env):
         loss = torch.zeros(n)
         cache_miss = []
         expressions = []
+
         for i in range(n):
-            cache_loss = self.reward_buffer.get(encodings[i])
+            cache_loss = self.loss_buffer.get(encodings[i])
             if cache_loss is None:
                 cache_miss.append(i)
                 expression = ExpressionTree(encodings[i], self.action_fns, self.action_arities, self.action_names)
@@ -124,35 +137,22 @@ class SRTree(Env):
         ensemble = ETEnsemble(expressions)
         optimize_constant(ensemble, self.X, self.y, self.inner_loop_config)
 
-        # compute final rewards/loss for expressions not cached
+        # compute final loss for expressions not cached
         with torch.no_grad():
             for i, miss_idx in enumerate(cache_miss):
-                criterion = nn.MSELoss()
-                final_reward = criterion(expressions[i](self.X), self.y)
+                final_reward = self.criterion(expressions[i](self.X), self.y)
                 if not torch.isfinite(final_reward):
                     loss[miss_idx] = torch.inf
                 else:
                     loss[miss_idx] = final_reward
                 has_constant = len(expressions[i].constants) > 0
-                self.reward_buffer.set(encodings[miss_idx], has_constant, loss[miss_idx])
+                self.loss_buffer.set(encodings[miss_idx], has_constant, loss[miss_idx])
+        return loss
 
-        if self.loss == "nrmse":
-            nrmse = torch.sqrt(loss) / torch.std(self.y)
-            rewards = torch.clamp(self.loss_thres / (self.loss_thres + nrmse), min=0.01)
-        else:
-            # TODO: alpha1 * fitting loss + alpha2 * structure loss
-            max_mse = ((self.y - self.y.mean()) ** 2).mean()
-            rewards = torch.clamp(1.0 - loss / max_mse, min=0.01)
+    def reward(self, encodings: torch.Tensor, is_eval: bool = False):
+        if not self.reward_manager:
+            self.set_up_reward_manager()
 
-        if len(rewards) > 1 and torch.max(rewards) > self.best_reward:
-            best_reward_vanilla = torch.max(rewards)
-            best_action = torch.argmax(rewards)
-            best_expr = expressions[best_action]
-            optimize_constant(best_expr, self.X, self.y, self.inner_eval_config)
-            loss_optmized = criterion(best_expr(self.X), self.y)
-            print(f"\nnew best reward (vanilla): {best_reward_vanilla}")
-            print(f"mse (pre/post optimized): {loss[best_action]}/{loss_optmized}")
-            print(f"expr: {str(best_expr)}")
-            self.best_reward = best_reward_vanilla
-            self.best_expr = best_expr
+        loss = self.calc_loss(encodings)
+        rewards = self.reward_manager.calc_rewards(loss, encodings, is_eval)
         return rewards

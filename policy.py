@@ -74,6 +74,15 @@ class RNNForwardPolicy(nn.Module):
         return probabilities.cpu()
 
 
+class RandomForwardPolicy(nn.Module):
+    def __init__(self, num_actions: int):
+        super(RandomForwardPolicy, self).__init__()
+        self.num_actions = num_actions
+
+    def forward(self, encodings):
+        return torch.ones(self.num_actions) / self.num_actions
+
+
 class CanonicalBackwardPolicy(nn.Module):
     def __init__(self, num_actions: int):
         super(CanonicalBackwardPolicy, self).__init__()

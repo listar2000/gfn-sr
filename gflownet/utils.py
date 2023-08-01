@@ -26,7 +26,7 @@ def trajectory_balance_loss(total_flow, rewards, fwd_probs):
     lhs = total_flow * torch.prod(fwd_probs, dim=1)
     # rhs = rewards * torch.prod(back_probs, dim=1)
     loss = torch.log(lhs / rewards)**2
-    assert torch.isfinite(loss).all()
+    assert torch.isfinite(loss).all(), total_flow
     # if not torch.isfinite(loss).all():
     #     s = (torch.prod(fwd_probs, dim=1) == 0).sum()
     #     print(s)
@@ -34,7 +34,7 @@ def trajectory_balance_loss(total_flow, rewards, fwd_probs):
     return loss.mean()
 
 
-class RewardBuffer(object):
+class LossBuffer(object):
     def __init__(self, buffer_size=5000, update_interval=1000):
         self.buffer_size = buffer_size
         self.update_interval = update_interval
