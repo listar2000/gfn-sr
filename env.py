@@ -7,7 +7,8 @@ import torch
 
 class SRTree(Env):
     def __init__(self, X: torch.Tensor, y: torch.Tensor, action_space: Action,
-                 max_depth=4, placeholder=-2, loss="nrmse", loss_thres=1, inner_loop_config=None):
+                 max_depth=4, placeholder=-2, loss="nrmse", loss_thres=1,
+                 update_interval=1000, inner_loop_config=None):
         # plus 1 for termination action
         self.action_space = action_space
         self.action_fns = action_space.action_fns
@@ -23,7 +24,7 @@ class SRTree(Env):
         if not inner_loop_config:
             inner_loop_config = {
                 "optim": "rmsprop",
-                "iteration": 15,
+                "iteration": 20,
                 "lr": 0.01,
                 "loss": "mse",
             }
@@ -31,7 +32,7 @@ class SRTree(Env):
         self.inner_eval_config = inner_loop_config.copy()
         self.inner_eval_config.update({'iteration': 100, 'optim': 'lbfgs'})
 
-        self.loss_buffer = LossBuffer(update_interval=1000)
+        self.loss_buffer = LossBuffer(update_interval=update_interval)
         self.criterion = nn.MSELoss()
         self.reward_manager = None
 

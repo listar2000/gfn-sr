@@ -38,9 +38,9 @@ def nguyen_5(num: int = 50):
     """
     sin(x^2) * cos(x) - 1
     """
-    xs = generate_x(num, -5, 5)
+    xs = generate_x(num, -10, 0)
     ys = torch.sin(xs[:, 0] ** 2) * torch.cos(xs[:, 0]) - 1
-    return xs, ys, 4
+    return xs, ys, 5
 
 
 def nguyen_6(num: int = 50):
@@ -93,45 +93,89 @@ NGUYEN_TESTS = [
     nguyen_9, nguyen_12
 ]
 
-if __name__ == "__main__":
-    batch_size = 32
-    num_epochs = 500
-    json_path = "./benchmark/lstm_1h.json"
-    test_log = []
-    for idx, test in enumerate(NGUYEN_TESTS):
-        print(f"start benchmarking test {idx}")
-        xs, ys, depth = test()
-        print(xs.shape, ys.shape)
 
-        action = Action(xs.shape[1])
-        env = SRTree(xs, ys, action_space=action, max_depth=depth, loss="other")
+def progressive_depth_algo(test, idx, begin_depth=2, end_depth=5):
+    batch_size = 256
+    num_epochs = 1000
 
-        forward_policy = RNNForwardPolicy(batch_size, 500, env.num_actions, num_layers=3, model="lstm")
+    print(f"start benchmarking test {idx}")
+    xs, ys, _ = test()
+
+    action = Action(xs.shape[1])
+
+    for depth in range(begin_depth, end_depth + 1):
+
+        print("progressive algo: depth {}".format(depth))
+        env = SRTree(xs, ys, action_space=action, max_depth=depth, loss="dynamic", update_interval=1000)
+
+        forward_policy = RNNForwardPolicy(batch_size, 250, env.num_actions, num_layers=2, model="lstm")
         backward_policy = CanonicalBackwardPolicy(env.num_actions)
         model = GFlowNet(forward_policy, backward_policy, env)
         opt = torch.optim.Adam(model.parameters(), lr=1e-3)
 
         for i in (p := tqdm(range(num_epochs))):
             s0 = env.get_initial_states(batch_size)
-            s, log = model.sample_states(s0, return_log=True)
-            if not torch.isfinite(log.rewards).all():
-                print(log.rewards)
-                assert False
+            s, log = model.sample_states(s0)
+            # if not torch.isfinite(log.rewards).all():
+            #     print(log.rewards)
+            #     assert False
             loss = trajectory_balance_loss(log.total_flow,
                                            log.rewards,
-                                           log.fwd_probs,
-                                           log.back_probs)
+                                           log.fwd_probs)
             loss.backward()
             opt.step()
             opt.zero_grad()
             if i % 10 == 0:
                 p.set_description(f"{loss.item():.3f}")
 
-        test_log.append({
-            "TEST_INDEX": idx,
-            "BEST_REWARD": env.best_reward.item(),
-            "BEST_EXPR": str(env.best_expr)
-        })
+        test_log = {
+            "BEST_REWARD": env.reward_manager.best_reward.item(),
+            "BEST_EXPR": str(env.reward_manager.best_expr)
+        }
 
-        with open(json_path, "w") as f:
-            json.dump(test_log, f, indent=4)
+        print(test_log)
+
+
+if __name__ == "__main__":
+    # batch_size = 256
+    # num_epochs = 500
+    # json_path = "./benchmark/lstm_bs_256_update_1000_gamma_099_q_09.json"
+    # test_log = []
+    # for idx, test in enumerate(NGUYEN_TESTS):
+    #     print(f"start benchmarking test {idx}")
+    #     xs, ys, depth = test()
+    #     print(xs.shape, ys.shape)
+    #
+    #     action = Action(xs.shape[1])
+    #     env = SRTree(xs, ys, action_space=action, max_depth=depth, loss="dynamic", update_interval=1000)
+    #
+    #     forward_policy = RNNForwardPolicy(batch_size, 250, env.num_actions, num_layers=2, model="lstm")
+    #     backward_policy = CanonicalBackwardPolicy(env.num_actions)
+    #     model = GFlowNet(forward_policy, backward_policy, env)
+    #     opt = torch.optim.Adam(model.parameters(), lr=1e-3)
+    #
+    #     for i in (p := tqdm(range(num_epochs))):
+    #         s0 = env.get_initial_states(batch_size)
+    #         s, log = model.sample_states(s0)
+    #         # if not torch.isfinite(log.rewards).all():
+    #         #     print(log.rewards)
+    #         #     assert False
+    #         loss = trajectory_balance_loss(log.total_flow,
+    #                                        log.rewards,
+    #                                        log.fwd_probs)
+    #         loss.backward()
+    #         opt.step()
+    #         opt.zero_grad()
+    #         if i % 10 == 0:
+    #             p.set_description(f"{loss.item():.3f}")
+    #
+    #     test_log.append({
+    #         "TEST_INDEX": idx,
+    #         "BEST_REWARD": env.reward_manager.best_reward.item(),
+    #         "BEST_EXPR": str(env.reward_manager.best_expr)
+    #     })
+    #
+    #     print(test_log)
+    #     with open(json_path, "w") as f:
+    #         json.dump(test_log, f, indent=4)
+    progressive_depth_algo(nguyen_5, 3, begin_depth=2, end_depth=3)

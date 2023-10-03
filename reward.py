@@ -62,14 +62,16 @@ class DynamicTSSReward(RewardManager):
     def __init__(self, env: SRTree, verbose: bool = True):
         super(DynamicTSSReward, self).__init__(env, verbose)
         self.baseline_mse = ((self.env.y - self.env.y.mean()) ** 2).mean()
-        self.gamma = 0.95
-        self.q = 0.1
+        self.gamma = 0.1
+        self.q = 0.9
 
     def calc_rewards(self, loss: torch.Tensor, encodings: torch.Tensor, is_eval: bool = False):
         rewards = torch.clamp(1.0 - loss / self.baseline_mse, min=1e-4)
         if not is_eval:
             self._update_rewards(rewards, loss, encodings)
-        new_baseline_mse = self.gamma * self.baseline_mse + (1 - self.gamma) * torch.quantile(loss, q=self.q)
+
+        new_baseline_mse = self.gamma * self.baseline_mse + (1 - self.gamma) * torch.min(loss)
+        # new_baseline_mse = self.gamma * self.baseline_mse + (1 - self.gamma) * torch.quantile(loss, q=self.q)
         if new_baseline_mse < self.baseline_mse:
             self.baseline_mse = new_baseline_mse
         return rewards
