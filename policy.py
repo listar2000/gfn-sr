@@ -3,6 +3,12 @@ from torch import nn
 import torch.nn.functional as F
 from actions import get_next_node_indices
 
+"""
+All the forward policies for GFlowNet. The `RNNForwardPolicy` contains implementations using vanilla RNN,
+GRU, and LSTM. The `CanonicalBackwardPolicy` serves as a placeholder since the backward probabilities is
+trivial when the state space has a tree structure.
+"""
+
 
 class RNNForwardPolicy(nn.Module):
     def __init__(self, batch_size, hidden_dim, num_actions,
@@ -92,7 +98,7 @@ class CanonicalBackwardPolicy(nn.Module):
         """
         Calculate the backward probability matrix for a given encoding.
         This downgrades into simply finding the recent action assigned in
-        the forward pass due to the tree structure of our environment.
+        the forward pass due to the tree structure of our env.
         Let (M, T, A) be the (batch size, max tree size, action space dim)
         Args:
             encodings: a (M * T) encoding matrix

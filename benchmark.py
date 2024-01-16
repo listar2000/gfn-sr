@@ -1,10 +1,8 @@
-import json
-
 import torch
 from tqdm import tqdm
 
 from actions import Action
-from env import SRTree
+from gflownet.env.sr_env import SRTree
 from gflownet import trajectory_balance_loss, GFlowNet
 from policy import RNNForwardPolicy, CanonicalBackwardPolicy
 

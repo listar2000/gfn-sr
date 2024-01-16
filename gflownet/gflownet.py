@@ -9,7 +9,7 @@ class GFlowNet(nn.Module):
     def __init__(self, forward_policy, backward_policy, env):
         """
         Initializes a GFlowNet using the specified forward and backward policies
-        acting over an environment, i.e. a state space and a reward function.
+        acting over an env, i.e. a state space and a reward function.
         
         Args:
             forward_policy: A policy network taking as input a state and
@@ -19,7 +19,7 @@ class GFlowNet(nn.Module):
             input a state and outputting a vector of probabilities over the
             actions which led to that state
             
-            env: An environment defining a state space and an associated reward
+            env: An env defining a state space and an associated reward
             function
         """
         super().__init__()

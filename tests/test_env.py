@@ -1,5 +1,5 @@
 import torch
-from env import SRTree
+from gflownet.env.sr_env import SRTree
 from actions import Action
 
 

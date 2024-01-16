@@ -1,7 +1,7 @@
 import torch
 
 from actions import ExpressionTree, optimize_constant
-from env import SRTree
+from gflownet.env.sr_env import SRTree
 
 
 class RewardManager(object):

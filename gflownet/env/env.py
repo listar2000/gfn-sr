@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 class Env(ABC):
     """
     Abstract base class defining the signatures of the required functions to be
-    implemented in a GFlowNet environment.
+    implemented in a GFlowNet env.
     """
     @abstractmethod
     def update(self, s, actions):

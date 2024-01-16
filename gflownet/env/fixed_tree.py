@@ -1,4 +1,4 @@
-from gflownet.env import Env
+from gflownet.env.env import Env
 import torch
 import torch.nn as nn
 from torch.nn.functional import one_hot

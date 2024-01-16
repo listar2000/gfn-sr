@@ -1,9 +1,9 @@
 import torch
 import argparse
 import matplotlib.pyplot as plt
-from env import SRTree
+from gflownet.env.sr_env import SRTree
 from actions import Action
-from policy import RNNForwardPolicy, RandomForwardPolicy, CanonicalBackwardPolicy
+from policy import RNNForwardPolicy, CanonicalBackwardPolicy
 from gflownet import GFlowNet, trajectory_balance_loss
 from tqdm import tqdm
 

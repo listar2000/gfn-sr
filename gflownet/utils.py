@@ -35,6 +35,16 @@ def trajectory_balance_loss(total_flow, rewards, fwd_probs):
 
 
 class LossBuffer(object):
+    """
+    A data structure that stores the reward values for equations already seen.
+    An equation is considered as "seen"/"visited" before up to all constant values. A special
+    `update_interval` parameter is required to control how often this buffer "forgets" the
+    rewards for update purpose (the reward function can be dynamic).
+
+    Args:
+        buffer_size: the maximum capacity of distinct expression trees in the buffer.
+        update_interval: the number of times after which the buffer will forget an expression.
+    """
     def __init__(self, buffer_size=5000, update_interval=1000):
         self.buffer_size = buffer_size
         self.update_interval = update_interval

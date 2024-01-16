@@ -1,4 +1,4 @@
-from gflownet.env import Env
+from gflownet.env.env import Env
 from actions import Action, ExpressionTree, optimize_constant, ETEnsemble
 from gflownet.utils import LossBuffer
 import torch.nn as nn
